@@ -18,6 +18,21 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
+import logcat.LogPriority
+import tachiyomi.core.common.util.system.logcat
+
+/**
+ * Lowest brightness handed to the shader.
+ *
+ * The brightness/contrast filter computes `(c - 0.5) * contrast + 0.5 + brightness` per channel, so
+ * a brightness of -1 subtracts a full unit and clamps the whole frame to black - the page looks
+ * blank even though it decoded and was drawn. The floor keeps white content ~30% grey, dark but
+ * visible, and matches [ReaderPreferences.WEBGPU_BRIGHTNESS_MIN].
+ */
+private const val MIN_BRIGHTNESS = -0.7f
+
+/** Below this the page is visibly darkened; a warning names the setting in black-page reports. */
+private const val BRIGHTNESS_WARN_THRESHOLD = -0.5f
 
 /**
  * Configuration used by WebGPU pager viewers.
@@ -142,7 +157,7 @@ class WebGpuConfig(
     // KMK <--
 
     // KMK -->
-    var brightness = readerPreferences.webgpuBrightness().get() / 100f
+    var brightness = resolvedBrightness(readerPreferences.webgpuBrightness().get())
         private set
 
     var contrast = readerPreferences.webgpuContrast().get() / 100f
@@ -600,7 +615,7 @@ class WebGpuConfig(
 
         readerPreferences.webgpuBrightness()
             .register(
-                { brightness = it / 100f },
+                { brightness = resolvedBrightness(it) },
                 { emitSettingsChange() },
             )
 
@@ -658,6 +673,20 @@ class WebGpuConfig(
                 { emitSettingsChange() },
             )
         // KMK <--
+    }
+
+    /**
+     * Clamps a stored brightness percent to [MIN_BRIGHTNESS] and warns when the page will look dark.
+     *
+     * @param percent Brightness percent from reader preferences
+     * @return Clamped brightness value
+     */
+    private fun resolvedBrightness(percent: Int): Float {
+        val value = (percent / 100f).coerceAtLeast(MIN_BRIGHTNESS)
+        if (value <= BRIGHTNESS_WARN_THRESHOLD) {
+            logcat(LogPriority.WARN) { "WebGPU brightness very low: $percent% -> $value (floor $MIN_BRIGHTNESS)" }
+        }
+        return value
     }
 
     private fun zoomTypeFromPreference(value: Int) {

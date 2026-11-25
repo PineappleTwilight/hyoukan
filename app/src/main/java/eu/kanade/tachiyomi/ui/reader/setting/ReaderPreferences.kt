@@ -428,7 +428,12 @@ class ReaderPreferences(
         const val WEBGPU_PRELOAD_BEHIND_MIN = 0
         const val WEBGPU_PRELOAD_BEHIND_MAX = 8
 
-        const val WEBGPU_BRIGHTNESS_MIN = -100
+        /**
+         * Lowest brightness the slider may hold and the shader may apply. Below the old -100 the
+         * brightness filter washed the whole frame to black, which surfaced as an all-black reader
+         * page; -70 (30% white) is the darkest that still renders a visible page.
+         */
+        const val WEBGPU_BRIGHTNESS_MIN = -70
         const val WEBGPU_BRIGHTNESS_MAX = 100
 
         const val WEBGPU_CONTRAST_MIN = 0
