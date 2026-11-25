@@ -136,6 +136,10 @@ abstract class BaseTracker(
     }
 
     override suspend fun setRemoteLastChapterRead(track: Track, chapterNumber: Int): /* KMK --> */ Track /* KMK <-- */ {
+        // KMK --> Captured before the assignments below so the status categories move only when
+        // the status really changed, matching setRemoteStatus and RefreshTracks.
+        val previousStatus = track.status
+        // KMK <--
         if (
             track.last_chapter_read == 0.0 &&
             track.last_chapter_read < chapterNumber &&
@@ -149,9 +153,19 @@ abstract class BaseTracker(
             track.finished_reading_date = System.currentTimeMillis()
         }
         updateRemote(track)
-        // KMK -->
-        return track
+        // KMK --> Reading the last chapter flips the status to Completed (and the first chapter
+        // read flips a not-started entry to Reading) without going through setRemoteStatus, so the
+        // status-bound categories have to be moved here too - otherwise completing a series leaves
+        // the entry in its old category instead of the one bound to the new status (issue #94).
+        // Wrapped so a failure here can never fail the chapter update the user just made.
+        if (previousStatus != track.status) {
+            runCatching {
+                val parsed = TrackStatus.parseTrackerStatus(globalAppGraph.trackerManager, id, track.status)
+                globalAppGraph.syncCategoriesWithTrackStatus.await(track.manga_id, parsed?.int)
+            }
+        }
         // KMK <--
+        return track
     }
 
     override suspend fun setRemoteScore(track: Track, scoreString: String) {
