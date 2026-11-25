@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="reread_count">
+        <item quantity="other">%1$d 次重讀</item>
+    </plurals>
+    <plurals name="category_update_interval_days">
+        <item quantity="other">每 %1$d 天</item>
+    </plurals>
+    <plurals name="duplicate_manga_count">
+        <item quantity="other">%1$d 項重複</item>
+    </plurals>
+    <plurals name="novel_search_result_count">
+        <item quantity="other">%1$d 項符合</item>
+    </plurals>
+</resources>
