@@ -748,8 +748,24 @@ internal suspend fun WebGpuViewer.decodeReaderPage(page: ViewerReaderPage, trace
         var replaced: ImagePage? = null
         synchronized(lock) {
             if (pageInCache(page) && !page.isDecoded && !page.imagePage.destroyed) {
+                // Gate texture adoption against the current device generation.
+                // If the device was rebuilt, pages decoded against the old generation
+                // must not be installed on the new device — they will be stale and
+                // render as black. Reset the page and let it re-decode fresh.
+                if (page.deviceGeneration != this.deviceGeneration) {
+                    logcat(LogPriority.WARN) {
+                        "WebGPU device generation mismatch: page=${
+                            page.page.index}, old generation=${page.deviceGeneration}, current=${
+                            this.deviceGeneration}; resetting."
+                    }
+                    page.state = PageState.IDLE
+                    page.decodedBytes = 0L
+                    page.imagePage = ErrorPage(this, "device rebuild", page.spreadPosition)
+                    return@synchronized
+                }
                 val oldImagePage = page.imagePage
                 page.imagePage = imagePage
+                page.deviceGeneration = this.deviceGeneration
                 noteIfLone(page)
                 page.state = PageState.IDLE
                 // The old page's cleanup waits until after the lock: it is cleanup()-bearing

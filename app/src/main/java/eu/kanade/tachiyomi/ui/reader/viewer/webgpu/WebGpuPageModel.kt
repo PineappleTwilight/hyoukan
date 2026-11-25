@@ -145,6 +145,12 @@ class ViewerReaderPage(
     val page: ReaderPage,
 ) : ViewerPage() {
     /**
+     * Device generation for this page's texture cache - bumped when GPU device is rebuilt so stale handles are detected.
+     */
+    @Volatile
+    var deviceGeneration: Long = 0L
+
+    /**
      * Computed once here rather than per lookup - the inputs (`Page.index` a val, the wrapping
      * chapter fixed at shell construction) cannot change under an existing shell.
      */

@@ -175,6 +175,10 @@ open class WebGpuViewer(
 
     @Volatile
     internal var perfHudLastUpdate = 0L
+
+    /** Current device generation — bumped when the GPU device is recreated, so stale textures can be detected. */
+    @Volatile
+    internal var deviceGeneration: Long = 0L
     // KMK <--
 
     // KMK -->
@@ -726,6 +730,7 @@ open class WebGpuViewer(
      */
     private val deviceRebuildListener =
         WebGpuRenderer.Companion.DeviceRebuildListener {
+            deviceGeneration++
             dropDeviceBoundPagesBeforeRebuild()
         }
 
