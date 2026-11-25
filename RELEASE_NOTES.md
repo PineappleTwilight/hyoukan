@@ -35,6 +35,7 @@ files moved. See .github/scripts/release_notes.py.
 
 - **Komga extension: EPUB books can be read in-app again.** With **Delegated sources** turned on in Settings → Advanced → Developer tools, an installed Komga extension is served by the app's own Komga implementation: series that contain real EPUBs are listed in full, and those books open in the book reader instead of being hidden. The server address and credentials you entered in the extension are used as-is, and existing library entries and Komga tracker links keep working.
 
+
 ### Improve
 
 - **Reader: the high-quality WebGPU renderer is now the default, and no longer withheld from low-memory devices.** It used to fall back to the standard viewer on any device below a fixed RAM class, even where WebGPU itself worked, and it was off unless you found the switch under Settings → Advanced. It is now offered wherever the device supports WebGPU and is on by default, the reader's existing memory budgeting sizes pages and tiles to the device, and a device whose GPU device keeps dying still falls back automatically after repeated dead sessions (the switch's summary says so when that happens).
@@ -59,6 +60,24 @@ files moved. See .github/scripts/release_notes.py.
 - The discontinued Mullvad DNS-over-HTTPS option has been removed from the DNS-over-HTTPS picker; anyone on it is switched to the default automatically.
 - **Reader: WebGPU gesture fixes from upstream.** A tap while a page is still settling now continues from where that motion was heading instead of jumping to the page's rest position, and a double-tap zoom in the long strip keeps its pan clamped as it zooms instead of snapping back afterwards.
 - **Reader: long-strip flings start from the finger lift.** The decay is timed from the moment you let go, like a scrolling list, so the strip no longer pauses for a frame or two and then jumps.
+
+- **Non-crash problems are now diagnosable — without eating storage by default.** The app keeps an in-memory logcat ring that survives process death and is flushed on demand (crash or "Share crash logs"), so the tail that explains a silent failure is there when you need it. At the default **Minimal** level warnings and errors are kept, and nothing is written to disk; continuous file logging (and the full debug/network detail) is opt-in via **Settings → Advanced → Log level**. The ring is bounded by both line count and a byte budget that tightens on low-RAM devices (down to 1 MB / 500 lines), so it never competes with the reader for memory. A new **View logs** screen (Advanced → View logs) lets you browse, copy, and share past crash/dump files without `adb`, and **Clear logs** wipes crash files, the ring, and the system buffer in one tap.
+- **The app log file is now written even on a fresh install.** Previously the XLog file printer was silent until you configured a storage directory; it now falls back to an app-private log folder so a bug report always has app-side logs to attach.
+- **The crash screen now shows the full report** (stack trace + debug info) instead of only `exception.toString()`, and the crash-loop guard tolerates a burst of crashes before giving up instead of only adjacent ones.
+
+- Tapping the version entry on the About screen now copies the full device info block (the same one crash reports lead with), not just the version line — bug reports finally arrive with a device to reproduce on.
+- Extension update errors are now only recorded for HTTP 401 and 404 — the statuses that mean the source needs your attention. The rest (Cloudflare challenges, rate limits, server hiccups) are logged but no longer flood the errors screen, and any recorded HTTP error's message tells you to check the site in WebView.
+- Migration: **"Fetch chapters in manual search" is now off by default** — each result's latest-chapter lookup is opt-in traffic, and slow sources no longer leave every result card spinning.
+- Books: turning pages now reports what the layout engine actually answered, so a "pages don't turn" report can be diagnosed from the log.
+
+- **Books: the font picker now has a scrollbar** — the bundled and imported families overflow the dialog, and the list gave no affordance for that.
+- **Anime-Planet tracker search works again.** The site now fronts its search page with a Cloudflare bot check; the tracker used to read that interstitial as the search result (empty "no results", or a long spin) instead of waiting out the check. It now waits for the real page — and if the check never clears, the error names the likely cause instead of a raw timeout message.
+- **Beta builds now log what the Discord RPC is doing.** The RPC logs through Timber, which was only planted in debug builds — every RPC failure (including the external-asset errors behind a missing presence image) was silent outside debug. Logging is now planted in every build, external-asset failures are mirrored into the in-app log, and successful image conversions are cached so the rate-limited endpoint is asked once per image instead of on every presence update.
+- **Beta builds are now release builds with a beta tag.** The beta channel had been shipping the unminified debug build, which is why a low-end device could spend 30-40 seconds opening the beta where the stable release took ten. Betas are now built from the same minified, shrunk preview variant as a release and published automatically from `master`, and a beta install checks the beta repository for its updates. Existing beta installs need one manual install to move over: the new build has its own application id and signing key.
+- **The WebGPU reader now records degraded sessions in the in-app log** — when a session ends with a dead or parked renderer, the strike (and what it means for future launches, up to the automatic fallback to the standard reader) is written where a phone-only user can actually see it.
+- SyncYomi protocol v2 is available as an opt-in: server-side merge and delta sync, with automatic fallback to v1 when the host does not advertise v2
+- SyncYomi manga `version` now bumps when an entry's categories change, and no longer bumps when chapters are read (chapter progress is versioned on the chapter itself)
+
 
 ### Fix
 
@@ -113,8 +132,6 @@ files moved. See .github/scripts/release_notes.py.
 - **WebGPU reader: pages no longer stay black after a GPU device rebuild.** A page decoded before a GPU device was replaced could be handed to the replacement device, and the driver rejected the first submit mid-frame — `Destroyed texture used in submit` on Mali, `tex=map failed 4: [Device] is lost` on PowerVR — leaving a black page while the session otherwise looked healthy. The reader now tracks the GPU device generation and discards textures that were bound to a retired device, re-decoding the page on the new device instead of submitting a stale one.
 - **Restore no longer sits at 100% for half an hour.** Reconciling trackers ran inside the restore job, and that job's progress notification stays on screen until it finishes — on a large library the rate-limited tracker calls took twenty to thirty minutes after the restore itself was complete. The reconciliation now runs in the background and the notification clears when the restore ends.
 
-### Fix
-
 - Reader (WebGPU): the first pages of a chapter could "run away" from you while you scrolled down — right after opening, or whenever the display's size shifted (menu bar hide/unhide, foldable posture change, e-ink refresh), any page still loading silently re-sized its reserved space, moving the content under your finger without you scrolling. Loading pages now reserve a fixed height until they decode, so the document only ever moves when you move it.
 - Reader (WebGPU): a thin dark line could appear between two pages, rarely, while a neighbouring page was still decoding or just finished (the two painters that redraw those boundary rows each computed the boundary their own way, and the two computations could disagree by less than a pixel). Every boundary painter now shares one chained value, closing the last two ways the line could form.
 - Reader (WebGPU): a saved reading position could be re-applied over a chapter that had already changed (a chapter swap or a seek landing while the restore was still waiting for its page to decode). Restores are now invalidated the moment the chapter set changes.
@@ -129,19 +146,6 @@ files moved. See .github/scripts/release_notes.py.
 - Library: completing a series that is not in your library no longer counts toward the "clear the backlog" achievements — the backlog is your shelved pile, so only shelved series can clear it.
 - **Smarter update scheduling (ported from Mihon).** Update checks now follow an entry's actual release calendar — fixed weekdays, days of the month, twice-monthly and batch-release patterns — instead of a rough day count, and after a missed or late release the next check keeps counting from the missed date instead of resetting, so a series is checked when its next chapter is actually due. Scanlators you excluded no longer skew the estimate.
 
-### Improve
-
-- **Non-crash problems are now diagnosable — without eating storage by default.** The app keeps an in-memory logcat ring that survives process death and is flushed on demand (crash or "Share crash logs"), so the tail that explains a silent failure is there when you need it. At the default **Minimal** level warnings and errors are kept, and nothing is written to disk; continuous file logging (and the full debug/network detail) is opt-in via **Settings → Advanced → Log level**. The ring is bounded by both line count and a byte budget that tightens on low-RAM devices (down to 1 MB / 500 lines), so it never competes with the reader for memory. A new **View logs** screen (Advanced → View logs) lets you browse, copy, and share past crash/dump files without `adb`, and **Clear logs** wipes crash files, the ring, and the system buffer in one tap.
-- **The app log file is now written even on a fresh install.** Previously the XLog file printer was silent until you configured a storage directory; it now falls back to an app-private log folder so a bug report always has app-side logs to attach.
-- **The crash screen now shows the full report** (stack trace + debug info) instead of only `exception.toString()`, and the crash-loop guard tolerates a burst of crashes before giving up instead of only adjacent ones.
-
-- Tapping the version entry on the About screen now copies the full device info block (the same one crash reports lead with), not just the version line — bug reports finally arrive with a device to reproduce on.
-- Extension update errors are now only recorded for HTTP 401 and 404 — the statuses that mean the source needs your attention. The rest (Cloudflare challenges, rate limits, server hiccups) are logged but no longer flood the errors screen, and any recorded HTTP error's message tells you to check the site in WebView.
-- Migration: **"Fetch chapters in manual search" is now off by default** — each result's latest-chapter lookup is opt-in traffic, and slow sources no longer leave every result card spinning.
-- Books: turning pages now reports what the layout engine actually answered, so a "pages don't turn" report can be diagnosed from the log.
-
-### Fix
-
 - **The download queue now survives a full app close.** Paused and unfinished downloads used to vanish every time the app was killed outright: the queue was rebuilt at startup before the extension sources had finished loading, so every entry failed its source lookup and the persisted list was wiped. The queue now restores once the sources are ready.
 - **Tracking: adding a series to a second tracker no longer opens the previous tracker's search screen.** The tracking sheet's sub-screens shared one cached state, so each new tracker search reused the first one's results.
 - **The More tab's Updates and History entries work again** when their navbar buttons are hidden — they used to do nothing when tapped from the fallback rows.
@@ -152,18 +156,6 @@ files moved. See .github/scripts/release_notes.py.
 - **Tracker-connect achievements now count trackers that arrived with a restored backup**, not only services logged into on this device.
 - **Two settings achievements were granted at startup to users who never touched the setting** (Cutout Connoisseur, AST Searcher) — the watcher seeded from default-on preferences.
 - **Backup restore: the "Restoring backup" banner no longer lingers** on screen for up to a minute after the restore finished.
-
-### Improve
-
-- **Books: the font picker now has a scrollbar** — the bundled and imported families overflow the dialog, and the list gave no affordance for that.
-- **Anime-Planet tracker search works again.** The site now fronts its search page with a Cloudflare bot check; the tracker used to read that interstitial as the search result (empty "no results", or a long spin) instead of waiting out the check. It now waits for the real page — and if the check never clears, the error names the likely cause instead of a raw timeout message.
-- **Beta builds now log what the Discord RPC is doing.** The RPC logs through Timber, which was only planted in debug builds — every RPC failure (including the external-asset errors behind a missing presence image) was silent outside debug. Logging is now planted in every build, external-asset failures are mirrored into the in-app log, and successful image conversions are cached so the rate-limited endpoint is asked once per image instead of on every presence update.
-- **Beta builds are now release builds with a beta tag.** The beta channel had been shipping the unminified debug build, which is why a low-end device could spend 30-40 seconds opening the beta where the stable release took ten. Betas are now built from the same minified, shrunk preview variant as a release and published automatically from `master`, and a beta install checks the beta repository for its updates. Existing beta installs need one manual install to move over: the new build has its own application id and signing key.
-- **The WebGPU reader now records degraded sessions in the in-app log** — when a session ends with a dead or parked renderer, the strike (and what it means for future launches, up to the automatic fallback to the standard reader) is written where a phone-only user can actually see it.
-- SyncYomi protocol v2 is available as an opt-in: server-side merge and delta sync, with automatic fallback to v1 when the host does not advertise v2
-- SyncYomi manga `version` now bumps when an entry's categories change, and no longer bumps when chapters are read (chapter progress is versioned on the chapter itself)
-
-### Fix
 
 - SyncYomi/sync no longer skips most of the library: entries restored from a backup were missing the favorite stamp the uploader required, so chapter progress never left the device (run **Sync now** once after updating so the full library can upload)
 - SyncYomi now applies remote un-favourites and drops chapters tombstoned on another device
