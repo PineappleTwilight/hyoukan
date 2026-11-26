@@ -83,6 +83,9 @@ import exh.ui.metadata.MetadataViewScreen
 import mihon.core.navigation.util.LocalBackStack
 import mihon.core.navigation.util.OverlaySheetScene
 import mihon.core.navigation.util.TwoPaneSettingsScene
+import mihon.feature.libraryimport.ui.ImportEntrySearchScreen
+import mihon.feature.libraryimport.ui.ImportSessionScreen
+import mihon.feature.libraryimport.ui.ImportSessionsScreen
 import mihon.feature.migration.config.MigrationConfigScreen
 import mihon.feature.migration.list.MigrationListScreen
 import mihon.feature.upcoming.UpcomingScreen
@@ -386,6 +389,20 @@ fun EntryProviderScope<NavKey>.appEntries() {
     // KMK -->
     entry<DownloadedContentRoute> {
         DownloadedContentScreen()
+    }
+
+    // KMK --> Resumable library imports (MangaBaka exports today, other services through the
+    // same session/store/screens by adding an adapter).
+    entry<ImportSessionsRoute> {
+        ImportSessionsScreen()
+    }
+
+    entry<ImportSessionRoute> { route ->
+        ImportSessionScreen(route.sessionId)
+    }
+
+    entry<ImportEntrySearchRoute> { route ->
+        ImportEntrySearchScreen(sessionId = route.sessionId, entryId = route.entryId)
     }
     // KMK <--
 

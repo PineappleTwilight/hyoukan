@@ -48,6 +48,16 @@ class BasePreferences(
     // off meant the renderer was invisible to everyone who never found this row, which is not a
     // choice a "high quality" build should be making for them.
     fun highQualityRenderer() = preferenceStore.getBoolean("pref_high_quality_renderer_key", true)
+
+    /**
+     * The WebGPU reader's screen-space tile cache.
+     *
+     * On by default: it is the sharpening path every reader gets. It is an advanced switch because
+     * a GPU that cannot afford the atlas shows it as memory pressure or a lost device, not as a
+     * quality regression - and PowerVR is pinned to the cache-free path in the library regardless
+     * of this value. Texture tiling itself is not affected; pages are always uploaded as tiles.
+     */
+    fun webGpuTileCache() = preferenceStore.getBoolean("pref_webgpu_tile_cache_key", true)
     // KMK <--
     // Mihon <--
 }

@@ -832,6 +832,36 @@ sessions stop the renderer being offered, and the switch's own subtitle says so 
 inert. The up-front RAM check refused devices that would have read fine and predicted a failure the
 runtime already handles — do not reintroduce one.
 
+### The tile cache is a mode, not the tiling itself
+
+`WebGpuRenderer.tileCacheUsable` is the high-quality screen-space cache (the `TileRenderer` atlas),
+**not** the texture tiling every page is uploaded as. Texture tiling is always on: a tall page above
+the device's texture limit only exists because `Mipmap` cuts it into tiles. The advanced switch is
+`BasePreferences.webGpuTileCache` (default on) and it is read by `WebGpuProvider` after the renderer
+probe, so the adapter is known; `ReaderActivity` rebuilds the viewer when it changes. PowerVR Rogue
+is pinned off in `TileCachePolicy` regardless of the switch.
+
+The cache-free path is now a real quality path, not the old one-bilinear-tap fallback:
+
+- `Image` builds the complete mip chain down to the uploader's 8px floor, and
+  `Image.prepareTilesForRender` picks the nearest level for the draw scale (`ImageMipPolicy`).
+  That is what stops halftone screentones moiré at the reader's ~0.6 scale.
+- `ImageSingle.renderWith` uses the **linear-light** pipeline (`linear = true`); the plain variant
+  draws nothing on the PowerVR GE8322.
+- The continuous walk also forces `linear = true` while the cache is off, even though every page
+  has `highQuality = false` then — its old branch would have selected the plain variant for exactly
+  those pages.
+- `Transition.getCachedTexture` has an explicit cache-free branch that seeds each slot with
+  `ImagePage.renderCacheSeed` and never calls `TileRenderer`. This is why page-turn animations keep
+  working without an atlas.
+- The continuous shared pass and its page draws drop the stencil attachment and use the unmasked
+  pipeline twins when the cache is off; only the tile blit ever wrote that stencil.
+
+The session header carries `tiles=` and `tiling=on|powervr|preference`, so a report names the mode
+and the reason. Do not "fix" a device by turning `highQuality` off directly — that bypasses the
+policy, skips the full mip chain's decision point and leaves transitions to the cache path. Go
+through `tileCacheUsable`.
+
 ### The loader queue admits every page twice — watch for it
 
 `HttpPageLoader` is upstream of this folder but it is where pages actually load, and its queue has
@@ -1399,6 +1429,7 @@ thing that runs.
 | `WebGpuHealthHarness` | the strike record's transitions: the threshold, the cap, the build scope (foreign and untagged counts discarded, re-tag on the next strike), a clean session clearing, the reset |
 | `WebGpuOfferHarness` | the provider's gate order: switch → health latch → renderer probe, that the probe is skipped once an earlier gate declines (it initialises the GPU device), and the precedence between all three |
 | `SwapchainRecoveryHarness` | the library's surface-recovery ladder, linked straight from `SwapchainRecoveryPolicy.kt`: the four exact boundaries, that a rung never repeats on the frames above it, the surface → device → GLES order, that a full streak reaches every step, and that a past-ceiling streak stays parked |
+| `TileCachePolicyHarness` | the cache switch and direct-path mip rule from the library: PowerVR is forced off regardless of the host request, every other adapter follows it, the chain is built to the 8px floor, and a 0.6x draw selects level 1 instead of aliasing on level 0 |
 
 The WebGPU JUnit suites (`WebGpuHealthPolicyTest`, `WebGpuSessionHealthTest`,
 `WebGpuDiagnosticsDrawnTest`, `WebGpuOfferTest`, plus `BasePreferencesRendererDefaultTest` for the
@@ -1431,6 +1462,7 @@ re-run it before assuming a row is still true.
 | Invert taps (`smallerTapZone`) | `ViewerNavigation` itself — shared, automatic |
 | Crop borders | `WebGpuConfig.imageCropBorders` — **resolved by reading mode**: Pager group for L2R/R2L/vertical, `cropBordersWebtoon` for WEBTOON, `cropBordersContinuousVertical` for CONTINUOUS_VERTICAL. The last two were previously unread, so the Webtoon group's switch was inert. |
 | Webtoon side padding | `WebGpuColumnWidth.resolveColumnWidth` + the pager's layout width inside `WebGpuViewerContinuous.columnFrame` — see below |
+| WebGPU tile cache (advanced) | `BasePreferences.webGpuTileCache` → `WebGpuProvider` → `WebGpuRenderer.requestTileCache`; PowerVR is forced off in `TileCachePolicy` |
 | Double-tap / pinch zoom, zoom-out, transitions, cutout, page offset, gap, dual-page pairing | `WebGpuConfig`, as documented in the sections above |
 
 **Side padding is a column width, not a margin on each page.** The library sizes every page to the
@@ -1496,7 +1528,7 @@ on screen: its key, image size, `scale`/`x`/`y`/`home`, `mips` count and `q` (ti
 answers "was the page placed where the surface could show it" without a second report; a
 `scale` near 0.01, an off-screen `x`/`y`, or `mips=0` is the answer, and `q=false` says the direct
 path was used. The session header carries `tiles=` (`WebGpuRenderer.tileCacheUsable`) and
-`filter=grayscale/inverted` for the same reason.
+`tiling=` (`on`, `powervr` or `preference`) and `filter=grayscale/inverted` for the same reason.
 
 ## WHERE THINGS ARE
 

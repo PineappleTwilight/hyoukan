@@ -242,6 +242,22 @@ data object ClearDatabaseRoute : NavKey
 // KMK -->
 @Serializable
 data object DownloadedContentRoute : NavKey
+
+/**
+ * Resumable library imports: the sessions list, one session's entry list, and the source search
+ * a single entry is matched through.
+ */
+@Serializable
+data object ImportSessionsRoute : NavKey
+
+@Serializable
+data class ImportSessionRoute(val sessionId: String) : NavKey
+
+@Serializable
+data class ImportEntrySearchRoute(
+    val sessionId: String,
+    val entryId: String,
+) : NavKey
 // KMK <--
 
 @Serializable

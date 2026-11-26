@@ -818,6 +818,7 @@ open class WebGpuViewer(
                 "continuous=$continuousHeader dual=${if (continuousHeader) false else isDualPageMode()} " +
                 "gpu=${WebGpuRenderer.adapterDescription} " +
                 "tiles=${WebGpuRenderer.tileCacheUsable} " +
+                "tiling=${WebGpuRenderer.tileCacheOffReason.ifEmpty { "on" }} " +
                 "surface=${pager.state.renderer.debugSummary} " +
                 "filter=${readerPreferences.grayscale().get()}/${readerPreferences.invertedColors().get()} " +
                 "filters=dark=${config.webgpuDarkMode} bright=${config.brightness} " +

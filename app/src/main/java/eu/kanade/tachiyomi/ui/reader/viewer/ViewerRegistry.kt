@@ -204,6 +204,17 @@ private object WebGpuProvider : ViewerProvider {
             WebGpuOffer.OFFERED -> Unit
         }
         // KMK <--
+        // KMK --> The advanced switch is read after the renderer probe, because the probe is
+        // what initialises the adapter the library's PowerVR override keys on. PowerVR stays off
+        // even when this preference is on; the effective value is logged with the session.
+        val wantsTileCache = basePreferences.webGpuTileCache().get()
+        ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.requestTileCache(wantsTileCache)
+        logcat {
+            "WebGpuProvider: tileCacheRequested=$wantsTileCache " +
+                "effective=${ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.tileCacheUsable} " +
+                "reason=${ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.tileCacheOffReason.ifEmpty { "on" }}"
+        }
+        // KMK <--
         return try {
             when (mode) {
                 ReadingMode.LEFT_TO_RIGHT -> WebGpuViewer(activity, isReversed = false, isVertical = false)

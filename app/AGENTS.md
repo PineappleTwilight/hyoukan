@@ -184,6 +184,31 @@ Code in `eu.kanade.tachiyomi.data.backup.{create,restore}`:
   written with a partial buffer still pending used to silently drop the tail of the library
   (everything when `entries.size % 250 != 0`) and stop the progress bar short of 100%.
 
+## Library imports (KMK)
+
+Resumable imports of another service's library export — MangaBaka today, any service through one
+adapter. Code in `mihon/feature/libraryimport/` (app) + `tachiyomi/domain/importer/` (models,
+repository interface, interactors); Settings → Data and storage → **Library imports**.
+
+- **An import entry is a shell, never a manga row.** `ImportEntry` lives in the import session's
+  JSON, not in `mangas`, so nothing can open it in the reader or list chapters for it. It becomes
+  real only when the reader matches it to a source (`MigrateImportEntryUseCase`).
+- **Generic by adapter.** `LibraryImportAdapter` (`data/`) parses one export format;
+  `LibraryImportAdapters` is the registry. Adding a service = one adapter + a line in the registry.
+  Parsed entries carry `trackingLinks` (`ImportTrackingLink`: app tracker id + remote id + state),
+  so auto-tracking is not MangaBaka-specific.
+- **Persistence is one JSON file** (`ImportSessionStore`, `filesDir/library_imports/sessions.json`)
+  behind `ImportSessionRepository`, written through a temp file + rename and mutated under one
+  mutex. Resumability is the `importedEntryIds` / `skippedEntryIds` sets; re-importing the same
+  export (same adapter + same entry-id list) continues the existing session instead of duplicating.
+- **The migration flow is the import screens themselves**: session list → session
+  (`ImportSessionScreen`, the "fake entries") → `ImportEntrySearchScreen` (a `SearchViewModel`
+  subclass reusing `MigrateSearchScreen`) → `MigrateImportEntryDialog` → `MigrateImportEntryUseCase`,
+  which fetches the target from its source, favorites it, marks chapters read up to the export's
+  progress (recognized numbers only), copies the note, and inserts the tracking row **locally**
+  (no upload — the next tracker refresh adopts the service's values). An existing track for that
+  tracker is never replaced, and an entry already in the library keeps its `dateAdded`.
+
 ## Theme system
 
 19 named color schemes extending `BaseColorScheme`. KMK adds cover-based dynamic theming via `DynamicMaterialExpressiveTheme`.

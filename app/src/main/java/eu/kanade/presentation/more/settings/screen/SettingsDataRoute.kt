@@ -72,6 +72,7 @@ import logcat.LogPriority
 import mihon.app.di.globalAppGraph
 import mihon.core.navigation.CreateBackupRoute
 import mihon.core.navigation.DownloadedContentRoute
+import mihon.core.navigation.ImportSessionsRoute
 import mihon.core.navigation.RestoreBackupRoute
 import mihon.core.navigation.util.LocalBackStack
 import tachiyomi.core.common.i18n.stringResource
@@ -128,6 +129,9 @@ data object SettingsDataRoute : NavKey, SearchableRoute {
             getBackupAndRestoreGroup(backupPreferences = backupPreferences),
             getDataGroup(),
             getExportGroup(),
+            // KMK --> Resumable imports from other services' library exports
+            getImportGroup(),
+            // KMK <--
         ) +
             // SY -->
             getSyncPreferences(syncPreferences = syncPreferences, syncService = syncService)
@@ -631,6 +635,24 @@ data object SettingsDataRoute : NavKey, SearchableRoute {
             ),
         )
     }
+
+    // KMK --> Resumable imports: each session is a list of shell entries waiting to be matched to
+    // a source, and re-opening the screen picks up where the last one stopped.
+    @Composable
+    private fun getImportGroup(): Preference.PreferenceGroup {
+        val backStack = LocalBackStack.current
+        return Preference.PreferenceGroup(
+            title = stringResource(KMR.strings.library_imports),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.library_import_add),
+                    subtitle = stringResource(KMR.strings.library_import_add_summary),
+                    onClick = { backStack.add(ImportSessionsRoute) },
+                ),
+            ),
+        )
+    }
+    // KMK <--
 
     // KMK --> Extended from the column-only picker: it also scopes the export to categories.
     // Default (uncategorized) is listed alongside the named categories and selects the

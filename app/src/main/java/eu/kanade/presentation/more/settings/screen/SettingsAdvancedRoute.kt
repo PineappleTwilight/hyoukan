@@ -417,6 +417,11 @@ data object SettingsAdvancedRoute : NavKey, SearchableRoute {
                 ),
                 // KMK -->
                 Preference.PreferenceItem.SwitchPreference(
+                    preference = basePreferences.webGpuTileCache(),
+                    title = stringResource(KMR.strings.pref_webgpu_tile_cache),
+                    subtitle = stringResource(KMR.strings.pref_webgpu_tile_cache_summary),
+                ),
+                Preference.PreferenceItem.SwitchPreference(
                     preference = readerPreferences.dualPageMatchHeights(),
                     title = stringResource(KMR.strings.pref_dual_page_match_heights),
                     subtitle = stringResource(KMR.strings.pref_dual_page_match_heights_summary),

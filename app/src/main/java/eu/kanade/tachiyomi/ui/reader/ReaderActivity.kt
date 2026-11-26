@@ -385,6 +385,19 @@ class ReaderActivity : BaseActivity() {
             }
             .launchIn(lifecycleScope)
 
+        // KMK --> The tile cache is a decode-affecting renderer mode: pages decoded with it on
+        // carry tile grids, pages decoded with it off do not. Rebuild the viewer so the next
+        // decode uses the new mode instead of leaving a mixed session. The provider applies the
+        // preference to the library, including the PowerVR override.
+        preferences.webGpuTileCache().changes()
+            .drop(1)
+            .onEach {
+                updateViewer(force = true)
+                viewModel.state.value.viewerChapters?.let(::setChapters)
+            }
+            .launchIn(lifecycleScope)
+        // KMK <--
+
         viewModel.eventFlow
             .onEach { event ->
                 when (event) {

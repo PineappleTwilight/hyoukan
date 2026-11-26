@@ -52,6 +52,27 @@ class BasePreferencesRendererDefaultTest {
         preferences(InMemoryPreferenceStore()).highQualityRenderer().key() shouldBe
             "pref_high_quality_renderer_key"
     }
+
+    // KMK --> The tile cache is a separate advanced switch, and it has its own default: on, so
+    // nobody loses the sharpening path without asking. A user who turns it off must keep that.
+    @Test
+    fun `the WebGPU tile cache is on when nothing was chosen`() {
+        preferences(InMemoryPreferenceStore()).webGpuTileCache().get().shouldBeTrue()
+    }
+
+    @Test
+    fun `an explicit tile-cache off is honoured`() {
+        val store = InMemoryPreferenceStore()
+        preferences(store).webGpuTileCache().set(false)
+        preferences(store).webGpuTileCache().get().shouldBeFalse()
+    }
+
+    @Test
+    fun `the tile-cache key is stable for settings backups`() {
+        preferences(InMemoryPreferenceStore()).webGpuTileCache().key() shouldBe
+            "pref_webgpu_tile_cache_key"
+    }
+    // KMK <--
 }
 
 private class InMemoryPreferenceStore : PreferenceStore {

@@ -116,6 +116,13 @@ for MAIN in "$HARNESS_DIR"/*Harness.kt; do
     if [ "$NAME" = "TileCoverageHarness" ]; then
         SOURCES+=("$REPO_ROOT/external/webgpuviewer-houri/library/src/main/java/ca/mpreg/webgpuviewer/renderer/TileCoverage.kt")
     fi
+    # The cache switch and the direct path's mip choice are the two rules that replaced the
+    # PowerVR black-screen workaround with a real cache-free pipeline. Both are pure files in
+    # the renderer submodule.
+    if [ "$NAME" = "TileCachePolicyHarness" ]; then
+        SOURCES+=("$REPO_ROOT/external/webgpuviewer-houri/library/src/main/java/ca/mpreg/webgpuviewer/renderer/TileCachePolicy.kt")
+        SOURCES+=("$REPO_ROOT/external/webgpuviewer-houri/library/src/main/java/ca/mpreg/webgpuviewer/renderer/ImageMipPolicy.kt")
+    fi
     # The highlights model is pure but carries the framework's `@JavascriptInterface` marker on
     # its bridge; the harness gets the one-line stub rather than dragging Android in.
     if [ "$NAME" = "PlainTextHarness" ]; then

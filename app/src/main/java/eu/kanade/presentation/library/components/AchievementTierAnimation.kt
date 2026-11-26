@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -101,7 +102,13 @@ fun rememberTierProgress(enabled: Boolean, tier: AchievementTier): Float {
     if (!enabled) return 0f
     if (tier == AchievementTier.BRONZE) return 0f
     val transition = rememberInfiniteTransition(label = "tierProgress")
-    val progress by transition.animateFloat(
+    // KMK --> Quantise a continuous Float instead of exposing it raw. A Float state changes on
+    // every frame, so every unlocked card recomposes and reallocates its gradient brush ~60x/sec;
+    // with a screenful of unlocked cards that is what drops the settings list from 60 to ~30fps.
+    // `derivedStateOf` only notifies its readers when the quantised value actually changes, so the
+    // sweep (and the card's background redraw) is capped at TIER_PROGRESS_STEPS per cycle while
+    // still looking smooth. `InfiniteTransition` has no animateInt, so the stepping happens here.
+    val raw by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -110,8 +117,11 @@ fun rememberTierProgress(enabled: Boolean, tier: AchievementTier): Float {
         ),
         label = "progress",
     )
-    return progress
+    val stepped by remember { derivedStateOf { (raw * TIER_PROGRESS_STEPS).toInt() / TIER_PROGRESS_STEPS.toFloat() } }
+    return stepped
 }
+
+private const val TIER_PROGRESS_STEPS = 24
 
 private fun tierDuration(tier: AchievementTier): Int = when (tier) {
     AchievementTier.SILVER -> 3200
