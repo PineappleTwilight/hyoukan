@@ -17,6 +17,7 @@ import ca.mpreg.webgpuviewer.filter.FilterBrightnessContrast
 import ca.mpreg.webgpuviewer.filter.FilterGrayscale
 import ca.mpreg.webgpuviewer.filter.FilterHlg
 import ca.mpreg.webgpuviewer.filter.FilterLut3d
+import ca.mpreg.webgpuviewer.filter.FilterSharpen
 import ca.mpreg.webgpuviewer.reader.OnReaderStateChanged
 import ca.mpreg.webgpuviewer.reader.PageAnchor
 import ca.mpreg.webgpuviewer.reader.ReaderState
@@ -161,6 +162,8 @@ open class WebGpuViewer(
     internal val hlgFilter = FilterHlg()
 
     internal val lutFilter = FilterLut3d()
+
+    internal val sharpenFilter = FilterSharpen()
 
     internal val einkGrayscaleFilter = FilterGrayscale(saturation = 1f)
 
@@ -705,6 +708,9 @@ open class WebGpuViewer(
         ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.Companion.DeviceRecoveredListener {
             if (isDestroyed) return@DeviceRecoveredListener
             WebGpuDiagnostics.recordRecovery(ok = true)
+            // The device came back, so this session is no longer a candidate for the
+            // crash-surviving strike marker - even if the app-side chain had given up first.
+            runCatching { WebGpuHealth.clearDegradedSessionInFlight(activity) }
             scope.launch {
                 try {
                     resetDecodedPagesAfterDeviceLoss()
@@ -773,6 +779,12 @@ open class WebGpuViewer(
             "WebGPU device lost and recovery gave up after $DEVICE_RECOVERY_ATTEMPTS attempts - " +
                 "the reader will stay on this device until it is recreated"
         }
+        // KMK --> This is the black-screen shape that may end in a native crash before
+        // `destroy()` can record a verdict (the PowerVR readback SIGILL). Persist the fact while
+        // the process is still alive so the next launch counts it, instead of reopening the same
+        // dead renderer forever. Cleared if a later recovery succeeds or the session closes.
+        runCatching { WebGpuHealth.markDegradedSessionInFlight(activity) }
+        // KMK <--
         return false
     }
 
@@ -1111,7 +1123,11 @@ open class WebGpuViewer(
             if (isDestroyed) return
             isDestroyed = true
         }
-        // KMK --> Strike bookkeeping for WebGpuHealth, before anything else tears down state
+        // KMK --> This close reaches the strike bookkeeping, so the crash-surviving marker has
+        // done its job either way: a degraded close records its own strike below, a healthy one
+        // clears the dial. Leaving the marker would double-count the next launch.
+        runCatching { WebGpuHealth.clearDegradedSessionInFlight(activity) }
+        // Strike bookkeeping for WebGpuHealth, before anything else tears down state
         // the check reads. A session that closes with the renderer still dead is the reported
         // black-screen shape (device lost, every recovery given up, reader unusable until the
         // process is killed); a session that thrashed through repeated losses is the same

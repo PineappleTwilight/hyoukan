@@ -7,6 +7,10 @@ import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.interactor.SetMigrateSorting
 import eu.kanade.tachiyomi.ui.browse.source.globalsearch.SourceFilter
 import eu.kanade.tachiyomi.util.system.LocaleHelper
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import mihon.domain.extension.model.ContentWarning
 import mihon.domain.migration.models.MigrationFlag
 import tachiyomi.core.common.preference.Preference
@@ -15,6 +19,7 @@ import tachiyomi.core.common.preference.getEnum
 import tachiyomi.core.common.preference.getEnumSet
 import tachiyomi.core.common.preference.getLongArray
 import tachiyomi.domain.library.model.LibraryDisplayMode
+import tachiyomi.domain.source.model.SourceHealthRecord
 
 @SingleIn(AppScope::class)
 @Inject
@@ -248,6 +253,26 @@ class SourcePreferences(
 
     // KMK -->
     fun relatedMangas() = preferenceStore.getBoolean("related_mangas", true)
+
+    /**
+     * Local source-health records (see `SourceHealthStore`).
+     *
+     * Stored as JSON because the shape changes with the feature and a preference is enough for a
+     * handful of rows. A malformed value decodes to an empty list rather than throwing inside a
+     * settings screen.
+     */
+    fun sourceHealthRecords() = preferenceStore.getObjectFromString(
+        "source_health_records",
+        emptyList(),
+        serializer = { records ->
+            Json.encodeToString(ListSerializer(SourceHealthRecord.serializer()), records)
+        },
+        deserializer = { raw ->
+            runCatching {
+                Json.decodeFromString(ListSerializer(SourceHealthRecord.serializer()), raw)
+            }.getOrDefault(emptyList())
+        },
+    )
 
     companion object {
         const val PINNED_SOURCES_PREF_KEY = "pinned_catalogues"

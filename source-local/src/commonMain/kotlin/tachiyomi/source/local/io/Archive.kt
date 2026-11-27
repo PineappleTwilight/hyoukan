@@ -25,6 +25,20 @@ object Archive {
      */
     fun isSupportedSingleFile(file: UniFile): Boolean {
         return !file.isDirectory &&
-            (isSupported(file) || file.extension.equals("epub", ignoreCase = true))
+            (isSupported(file) || file.isBookFile())
+    }
+
+    /**
+     * Whether [file] is a prose book the local source can route to the book reader.
+     *
+     * EPUB carries its own package and resources; FB2 is single-file XML; TXT is single-file
+     * plain text. All three are "one file, one book" and are handled by the text pipeline rather
+     * than unpacked into image pages.
+     */
+    private fun UniFile.isBookFile(): Boolean {
+        val ext = extension
+        return ext.equals("epub", ignoreCase = true) ||
+            ext.equals("fb2", ignoreCase = true) ||
+            ext.equals("txt", ignoreCase = true)
     }
 }

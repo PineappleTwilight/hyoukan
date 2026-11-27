@@ -105,6 +105,18 @@ data object SettingsAdvancedRoute : NavKey, SearchableRoute {
                 title = stringResource(MR.strings.pref_debug_info),
                 onClick = { backStack.add(DebugInfoRoute) },
             ),
+            // KMK --> Local-only source/extensions health (#98)
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(KMR.strings.pref_source_health),
+                subtitle = stringResource(KMR.strings.pref_source_health_summary),
+                onClick = { backStack.add(SettingsSourceHealthRoute) },
+            ),
+            Preference.PreferenceItem.TextPreference(
+                title = stringResource(KMR.strings.pref_novel_plugins),
+                subtitle = stringResource(KMR.strings.pref_novel_plugins_summary),
+                onClick = { backStack.add(SettingsNovelPluginsRoute) },
+            ),
+            // KMK <--
             // KMK --> In-app log viewer + clear-logs action
             Preference.PreferenceItem.TextPreference(
                 title = stringResource(KMR.strings.pref_log_viewer),

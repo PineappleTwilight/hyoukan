@@ -72,6 +72,14 @@ internal fun isBrightnessContrastActive(brightness: Float, contrast: Float): Boo
     brightness != 0f || contrast != 1f
 
 /**
+ * Whether the sharpen pass has anything to do.
+ *
+ * Zero is the identity: the pass would blur and re-add the same pixels. Negative amounts are
+ * clamped away by the filter itself, so a stored negative is dead too.
+ */
+internal fun isSharpenActive(amount: Float): Boolean = amount > 0f
+
+/**
  * Whether the LUT pass has anything to do.
  *
  * Three things have to agree, and only the first is obvious from the settings screen: a LUT must
@@ -121,6 +129,8 @@ internal fun WebGpuViewer.applyImageState() {
         brightnessContrastFilter.brightness = config.brightness
         brightnessContrastFilter.contrast = effective
         brightnessContrastFilter.enabled = isBrightnessContrastActive(config.brightness, effective)
+        sharpenFilter.amount = config.sharpen
+        sharpenFilter.enabled = isSharpenActive(config.sharpen)
         hlgFilter.exposure = config.hlgExposure
         hlgFilter.enabled = config.hlgEnabled
         einkGrayscaleFilter.saturation = if (config.einkPreset) 0f else 1f
@@ -135,6 +145,7 @@ internal fun WebGpuViewer.applyImageState() {
         )
         val desired = buildList {
             if (brightnessContrastFilter.enabled) add(brightnessContrastFilter)
+            if (sharpenFilter.enabled) add(sharpenFilter)
             if (hlgFilter.enabled) add(hlgFilter)
             if (lutActive) add(lutFilter)
             if (einkGrayscaleFilter.enabled) add(einkGrayscaleFilter)

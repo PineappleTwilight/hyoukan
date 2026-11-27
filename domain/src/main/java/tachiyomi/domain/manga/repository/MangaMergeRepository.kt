@@ -12,6 +12,17 @@ interface MangaMergeRepository {
 
     suspend fun getMergedMangaById(id: Long): List<Manga>
 
+    /**
+     * Merged children for several merge entries at once.
+     *
+     * The library filters, bulk downloads and bulk deletes all ask "which manga does this merged
+     * entry consist of?" for a page-sized list of entries. Answering that per id is a database
+     * dispatch per entry, so this returns the whole page in one call: `mergeId -> children`.
+     * Entries without children are absent from the result, matching [getMergedMangaById]'s empty
+     * list for the same id.
+     */
+    suspend fun getMergedMangaByIds(ids: List<Long>): Map<Long, List<Manga>>
+
     suspend fun subscribeMergedMangaById(id: Long): Flow<List<Manga>>
 
     suspend fun getReferencesById(id: Long): List<MergedMangaReference>

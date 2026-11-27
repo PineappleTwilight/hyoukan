@@ -285,9 +285,16 @@ interface AppGraph : ViewModelGraph {
     val downloadManager: DownloadManager
     val updateChecker: AppUpdateChecker
     val sourceManager: SourceManager
+    // KMK --> user-installed novel plugins (#104)
+    val novelPluginRepository: eu.kanade.tachiyomi.data.novel.NovelPluginRepository
+    val novelPluginRuntime: eu.kanade.tachiyomi.data.novel.NovelPluginRuntime
+    // KMK <--
     val trackerManager: TrackerManager
     val extensionManager: ExtensionManager
     val extensionErrorReporter: ExtensionErrorReporter
+    // KMK --> local-only source health records (#98)
+    val sourceHealthStore: eu.kanade.tachiyomi.extension.health.SourceHealthStore
+    // KMK <--
     val chapterCache: ChapterCache
     val downloadCache: DownloadCache
     val networkHelper: NetworkHelper

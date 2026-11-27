@@ -44,7 +44,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import logcat.LogPriority
@@ -302,9 +301,15 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
         // asking the repository per manga would be a database round trip for every entry in the
         // library, on every scheduled run. Entries whose categories carry no interval are absent
         // from the map and so are untouched, which is what keeps existing behaviour identical.
-        val categoryIntervals = getCategories.await()
+        // The parent map lets a subcategory inherit its parent's interval unless it has one of
+        // its own (#102).
+        val categories = getCategories.await()
+        val categoryIntervals = categories
             .mapNotNull { category -> category.updateInterval?.let { category.id to it } }
             .toMap()
+        val categoryParents = categories
+            .filter { it.parentId != 0L && it.parentId != it.id }
+            .associate { it.id to it.parentId }
         val categoryIntervalNow = System.currentTimeMillis()
         val dayMillis = java.util.concurrent.TimeUnit.DAYS.toMillis(1)
         // KMK <--
@@ -318,7 +323,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                 // interval means nothing is bound, and lastUpdate == 0 means never fetched, which
                 // must still be picked up rather than treated as "updated at the epoch".
                 val categoryIntervalDays =
-                    GetCategoryUpdateInterval.intervalDaysFor(categoryIntervals, it.categories.toSet())
+                    GetCategoryUpdateInterval.intervalDaysFor(categoryIntervals, categoryParents, it.categories.toSet())
                 // KMK <--
                 when {
                     it.manga.updateStrategy == UpdateStrategy.ONLY_FETCH_ONCE && it.totalChapters > 0L -> {
@@ -482,7 +487,22 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                                         newUpdates.add(manga to newChapters.toTypedArray())
                                     }
                                     clearErrorFromDB(mangaId = manga.id)
+                                    // KMK --> Library updates are most readers' only source contact,
+                                    // so they feed the local health screen too.
+                                    globalAppGraph.sourceHealthStore.recordSuccess(
+                                        sourceId = manga.source,
+                                        sourceName = sourceManager.getOrStub(manga.source).name,
+                                    )
+                                    // KMK <--
                                 } catch (e: Throwable) {
+                                    // KMK --> Recorded before the error-message filter below:
+                                    // a rate limit or a 500 still counts as a failed contact.
+                                    globalAppGraph.sourceHealthStore.recordFailure(
+                                        sourceId = manga.source,
+                                        sourceName = sourceManager.getOrStub(manga.source).name,
+                                        kind = eu.kanade.tachiyomi.extension.health.SourceFailureClassifier.classify(e),
+                                    )
+                                    // KMK <--
                                     // KMK --> Only 401 (authentication revoked) and 404 (entry
                                     // gone) are worth surfacing as update errors: the other
                                     // statuses are anti-bot / rate-limit / transient-server
@@ -551,12 +571,12 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
         }
     }
 
-    private fun downloadChapters(manga: Manga, chapters: List<Chapter>) {
+    private suspend fun downloadChapters(manga: Manga, chapters: List<Chapter>) {
         // We don't want to start downloading while the library is updating, because websites
         // may don't like it and they could ban the user.
         // SY -->
         if (isMergedSourceId(manga.source)) {
-            val downloadingManga = runBlocking { getMergedMangaForDownloading.await(manga.id) }
+            val downloadingManga = getMergedMangaForDownloading.await(manga.id)
                 .associateBy { it.id }
             chapters.groupBy { it.mangaId }
                 .forEach {
@@ -834,7 +854,7 @@ class LibraryUpdateJob(private val context: Context, workerParams: WorkerParamet
                     wm.cancelWorkById(it.id)
                     // KMK -->
                     val libraryUpdateStatus: LibraryUpdateStatus = globalAppGraph.libraryUpdateStatus
-                    runBlocking { libraryUpdateStatus.stop() }
+                    libraryUpdateStatus.stop()
                     // KMK <--
 
                     // Re-enqueue cancelled scheduled work

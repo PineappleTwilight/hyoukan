@@ -3,6 +3,7 @@
 package org.jsoup
 
 import org.jsoup.nodes.Document
+import org.jsoup.parser.Parser
 import java.io.InputStream
 
 object Jsoup {
@@ -13,5 +14,9 @@ object Jsoup {
     @JvmStatic
     fun parse(html: String): Document = Document()
     @JvmStatic
-    fun parse(input: InputStream, charsetName: String?, baseUri: String, parser: Any): Document = Document()
+    fun parse(html: String, baseUri: String?, parser: Parser): Document = Document()
+    @JvmStatic
+    fun parse(input: InputStream, charsetName: String?, baseUri: String, parser: Parser): Document = Document()
+    @JvmStatic
+    fun parseBodyFragment(html: String): Document = Document()
 }

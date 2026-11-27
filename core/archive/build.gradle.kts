@@ -20,4 +20,7 @@ dependencies {
     // No cycle: source-api depends on nothing here.
     implementation(projects.sourceApi)
     // KMK <--
+
+    testImplementation(libs.bundles.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

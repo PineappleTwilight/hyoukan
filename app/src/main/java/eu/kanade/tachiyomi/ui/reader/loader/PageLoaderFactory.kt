@@ -254,6 +254,11 @@ private object DefaultPageLoaderProvider : PageLoaderProvider {
                     is Format.Directory -> DirectoryPageLoader(format.file)
                     is Format.Archive -> ArchivePageLoader(format.file.archiveReader(context))
                     is Format.Epub -> EpubPageLoader(format.file.epubReader(context))
+                    // KMK --> Prose books are claimed by TextEntryPageLoaderProvider before the
+                    // image chain is consulted; reaching this is a routing bug, not a format.
+                    is Format.Fb2, is Format.PlainText ->
+                        error("A prose book has no image page loader")
+                    // KMK <--
                 }
             }
         }

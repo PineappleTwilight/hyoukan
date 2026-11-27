@@ -105,6 +105,59 @@ class MangabakaLibraryImporterTest {
     }
 
     @Test
+    fun `reads the schema version 2 site export`() {
+        val entries = importer.parse(SCHEMA_V2_EXPORT)
+
+        entries.size shouldBe 2
+        val first = entries.first { it.title == "The Legendary Hero is an Academy Honors Student" }
+        first.id shouldBe "376205"
+        first.progressChapter shouldBe 11.0
+        first.status shouldBe null
+        first.totalChapters shouldBe 0L
+        first.seriesUrl shouldBe "https://mangabaka.org/376205"
+
+        val link = first.trackingLinks.single()
+        link.trackerId shouldBe TrackerId.MANGABAKA
+        link.remoteId shouldBe 376205L
+        link.remoteUrl shouldBe "https://mangabaka.org/376205"
+        link.status shouldBe "reading"
+        link.score shouldBe 100.0
+        link.progressChapter shouldBe 11.0
+        link.startDate shouldBe "2026-07-04T00:00:00.000Z"
+        link.isPrivate shouldBe false
+    }
+
+    @Test
+    fun `a schema version 2 export keeps entries distinct by their mangabaka id`() {
+        // The site export can hold two entries with the same title (different series), and
+        // `source.mangabaka` is the only id that tells them apart.
+        val entries = importer.parse(SCHEMA_V2_EXPORT)
+
+        entries.map { it.id } shouldBe listOf("376205", "37387")
+        entries.map { it.trackingLinks.single().remoteId } shouldBe listOf(376205L, 37387L)
+    }
+
+    @Test
+    fun `a titles object falls back from primary to romanized`() {
+        val entries = importer.parse(
+            """
+            { "entries": [
+              { "entry": { "state": "reading" },
+                "source": { "mangabaka": 7 },
+                "titles": { "primary": null, "romanized": "Romaji Name", "native": "ネイティブ" } },
+              { "entry": { "state": "reading" },
+                "source": { "mangabaka": 8 },
+                "titles": { "primary": "", "romanized": null, "native": "ネイティブ" } }
+            ] }
+            """.trimIndent(),
+        )
+
+        entries[0].title shouldBe "Romaji Name"
+        // An empty primary is not a title; the native one is the last fallback.
+        entries[1].title shouldBe "ネイティブ"
+    }
+
+    @Test
     fun `entries without a usable title are dropped`() {
         val entries = importer.parse(
             """
@@ -154,6 +207,8 @@ class MangabakaLibraryImporterTest {
         importer.matchesFileName("mangabaka_library.json") shouldBe true
         importer.matchesFileName("MangaBaka-export.JSON") shouldBe true
         importer.matchesFileName("manga_baka_export.json") shouldBe true
+        // The site's current download name.
+        importer.matchesFileName("mangabaka-library-export-2026-11-26T20-00-36Z.json") shouldBe true
         importer.matchesFileName("backup.csv") shouldBe false
         importer.matchesFileName(null) shouldBe false
     }
@@ -167,6 +222,64 @@ class MangabakaLibraryImporterTest {
     }
 
     private companion object {
+        /**
+         * The site's `schema_version: 2` export: `titles` is an object and the series id lives in
+         * `source.mangabaka`, not in a `series` object. Trimmed from a real export
+         * (`mangabaka-library-export-2026-11-26T20-00-36Z.json`), which is what failed with
+         * `Expected JsonArray, but had JsonObject ... at path: $.titles`.
+         */
+        val SCHEMA_V2_EXPORT = """
+            {
+              "schema_version": 2,
+              "exported_at": "2026-11-26T20:00:36.626Z",
+              "lists": [{ "id": 5755, "name": "Dropped" }],
+              "entries": [
+                {
+                  "entry": {
+                    "note": null, "read_link": null, "rating": 100, "state": "reading",
+                    "priority": 20, "is_private": false, "number_of_rereads": null,
+                    "progress_chapter": 11, "progress_volume": null,
+                    "start_date": "2026-07-04T00:00:00.000Z", "finish_date": null,
+                    "imported_at": null, "created_at": "2026-07-05T18:19:01.058Z",
+                    "updated_at": "2026-07-05T18:19:08.336Z"
+                  },
+                  "source": {
+                    "anilist": null, "anime_news_network": null, "kitsu": null,
+                    "manga_updates": null, "mangabaka": 376205, "my_anime_list": null,
+                    "shikimori": null
+                  },
+                  "titles": {
+                    "primary": "The Legendary Hero is an Academy Honors Student",
+                    "native": "전설급 영웅은 아카데미 우등생",
+                    "romanized": null
+                  },
+                  "lists": []
+                },
+                {
+                  "entry": {
+                    "note": null, "read_link": null, "rating": 85, "state": "completed",
+                    "priority": 20, "is_private": false, "number_of_rereads": null,
+                    "progress_chapter": 1, "progress_volume": null,
+                    "start_date": "2026-07-06T00:00:00.000Z", "finish_date": null,
+                    "imported_at": null, "created_at": "2026-07-07T16:15:23.781Z",
+                    "updated_at": "2026-10-18T23:42:11.746Z"
+                  },
+                  "source": {
+                    "anilist": 88868, "anime_news_network": null, "kitsu": 25544,
+                    "manga_updates": "w3icd9i", "mangabaka": 37387, "my_anime_list": null,
+                    "shikimori": null
+                  },
+                  "titles": {
+                    "primary": "The Lonely Princess",
+                    "native": "ひとりぼっちのお姫様",
+                    "romanized": "Hitoribocchi no Ohimesama"
+                  },
+                  "lists": []
+                }
+              ]
+            }
+        """.trimIndent()
+
         val LIBRARY_EXPORT = """
             {
               "data": [

@@ -596,6 +596,15 @@
     <string name="pref_webgpu_brightness_summary">Shifts page brightness up or down. Applies live with no re-decode.</string>
     <string name="pref_webgpu_contrast">Contrast</string>
     <string name="pref_webgpu_contrast_summary">Stretches page tones around mid-gray. Applies live with no re-decode.</string>
+    <string name="pref_webgpu_sharpen">Sharpening</string>
+    <string name="pref_webgpu_sharpen_summary">Unsharp mask for soft or downscaled scans. Applies live with no re-decode.</string>
+    <string name="pref_webgpu_filter_presets">Filter presets</string>
+    <string name="pref_webgpu_filter_presets_summary">Save the current brightness, contrast, sharpening and colour look, then reapply it in one tap.</string>
+    <string name="webgpu_preset_empty">No saved looks yet.</string>
+    <string name="webgpu_preset_name">Preset name</string>
+    <string name="webgpu_preset_save">Save current look</string>
+    <string name="webgpu_preset_apply">Apply</string>
+    <string name="webgpu_preset_delete">Delete</string>
     <string name="pref_webgpu_hlg">HLG tone mapping</string>
     <string name="pref_webgpu_hlg_summary">Hybrid log-gamma pass for HDR-ish pages. Applies live with no re-decode.</string>
     <string name="pref_webgpu_hlg_exposure">HLG exposure</string>
@@ -617,6 +626,40 @@
     <string name="pref_webgpu_perf_hud_summary">Debug overlay with frame time, FPS and tile memory. Debug builds only.</string>
     <string name="pref_webgpu_eink_preset">E-ink preset</string>
     <string name="pref_webgpu_eink_preset_summary">Grayscale pages, boosted contrast and calm transitions for e-ink screens.</string>
+
+    <!-- Source health diagnostics (#98) -->
+    <string name="pref_source_health_title">Source health diagnostics</string>
+    <string name="pref_source_health">Source health diagnostics</string>
+    <string name="pref_source_health_summary">Local-only checks of which sources are answering. Nothing is uploaded or shared automatically.</string>
+    <string name="source_health_offline">The device is offline, so every status is Unknown and no failure counts are changing.</string>
+    <string name="source_health_no_records">No source checks have been recorded yet. Read or update from a source first.</string>
+    <string name="source_health_no_record_hint">No successful call yet. Status is decided from the last failure recorded for this source.</string>
+    <string name="source_health_export">Export redacted report</string>
+    <string name="source_health_export_summary">Share a plain-text summary of source statuses. Library titles, URLs and accounts are never included.</string>
+    <string name="source_health_share_title">Share source health report</string>
+    <string name="source_health_refresh">Refresh</string>
+    <string name="source_health_clear">Clear health records</string>
+    <string name="source_health_clear_summary">Forget every recorded failure. Statuses start over.</string>
+    <string name="source_health_status_unknown">Unknown</string>
+    <string name="source_health_status_healthy">Healthy</string>
+    <string name="source_health_status_degraded">Degraded</string>
+    <string name="source_health_status_blocked">Blocked</string>
+    <string name="source_health_status_suspected_dead">Suspected dead</string>
+    <string name="source_health_record_summary">%1$d consecutive failures · %2$d total</string>
+    <string name="source_health_last_failure">Last failure: %1$s</string>
+    <string name="source_health_blocked_hint">Cloudflare or a login is blocking the source. Open its site in a WebView to solve the challenge.</string>
+    <string name="source_health_dead_hint">Several DNS or 404 failures in a row. The site may have moved or closed.</string>
+    <string name="source_health_degraded_hint">The last call failed. A single timeout or HTTP error is usually transient.</string>
+
+    <!-- Novel plugins (#104) -->
+    <string name="pref_novel_plugins_title">Novel plugins</string>
+    <string name="pref_novel_plugins">Novel plugins</string>
+    <string name="pref_novel_plugins_summary">Install JavaScript novel sources that run in a sandboxed QuickJS runtime. A plugin talks to the network only through the host, and store imports never execute at load time.</string>
+    <string name="novel_plugins_import">Import plugin file</string>
+    <string name="novel_plugins_import_summary">Pick a .js file with an @id/@name header. The plugin is validated but not run until you browse with it.</string>
+    <string name="novel_plugins_empty">No plugins installed.</string>
+    <string name="novel_plugins_delete">Delete plugin</string>
+    <string name="novel_plugins_delete_body">Remove \"%1$s\"? Its library entries stay, but will no longer update until it is reinstalled.</string>
     <string name="category_manager_search">Search categories and subcategories…</string>
     <string name="category_manager_sort">Sort subcategories</string>
     <string name="set_categories_sort">Sort categories</string>

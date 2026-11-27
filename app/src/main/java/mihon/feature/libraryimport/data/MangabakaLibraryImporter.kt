@@ -62,7 +62,9 @@ class MangabakaLibraryImporter : LibraryImportAdapter {
     private fun MangabakaExportItem.toImportEntry(): ImportEntry? {
         val series = this.series
         val entry = this.entry
-        val resolvedSeriesId = series?.id ?: entry?.seriesId ?: seriesId ?: id
+        // schema_version 2 moves the series id from `series.id`/`entry.series_id` to
+        // `source.mangabaka`; both forms end up as the tracking link.
+        val resolvedSeriesId = series?.id ?: entry?.seriesId ?: seriesId ?: source?.mangabaka ?: id
 
         val title = (series?.titles ?: titles).chooseBestTitle() ?: title?.takeIf { it.isNotBlank() }
         if (title.isNullOrBlank()) return null
@@ -126,8 +128,18 @@ class MangabakaLibraryImporter : LibraryImportAdapter {
         )
     }
 
-    private fun List<MangabakaExportTitle>?.chooseBestTitle(): String? {
-        if (this.isNullOrEmpty()) return null
+    private fun MangabakaExportTitles?.chooseBestTitle(): String? = when (this) {
+        null -> null
+        is MangabakaExportTitles.Entries -> entries.chooseBestTitle()
+        // The site export already names the title it shows first; romanized/native are only
+        // fallbacks for a series with no primary title.
+        is MangabakaExportTitles.Names -> primary?.takeIf { it.isNotBlank() }
+            ?: romanized?.takeIf { it.isNotBlank() }
+            ?: native?.takeIf { it.isNotBlank() }
+    }
+
+    private fun List<MangabakaExportTitle>.chooseBestTitle(): String? {
+        if (isEmpty()) return null
         val bestPerLanguage = TITLE_PRIORITIES.associateWith { language ->
             this.filter { it.language == language }
                 .minByOrNull {

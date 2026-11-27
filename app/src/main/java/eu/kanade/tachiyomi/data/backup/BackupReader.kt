@@ -52,7 +52,7 @@ class BackupReader(
             if (fieldNumber == 0L) throw IOException("Invalid field number 0")
 
             if (tag == ENTRY_TAG) {
-                entryLength = source.readLength()
+                entryLength = source.readLength(MAX_ENTRY_BYTES)
                 return true
             }
 
@@ -64,7 +64,14 @@ class BackupReader(
                 WIRE_TYPE_VARINT -> metadata.writeVarint(source.readVarint())
                 WIRE_TYPE_FIXED64 -> metadata.write(source, 8)
                 WIRE_TYPE_LENGTH_DELIMITED -> {
-                    val length = source.readLength()
+                    val length = source.readLength(MAX_METADATA_BYTES)
+                    // The length is untrusted, and without this check a single misprinted varint
+                    // asks the buffer to hold gigabytes before a single entry is read.
+                    if (metadata.size + length > MAX_METADATA_BYTES) {
+                        throw IOException(
+                            "Backup metadata exceeds the $MAX_METADATA_BYTES byte limit",
+                        )
+                    }
                     metadata.writeVarint(length)
                     metadata.write(source, length)
                 }
@@ -117,9 +124,9 @@ private fun BufferedSource.readVarint(): Long {
     throw IOException("Malformed varint")
 }
 
-private fun BufferedSource.readLength(): Long {
+private fun BufferedSource.readLength(max: Long): Long {
     val length = readVarint()
-    if (length !in 0..Int.MAX_VALUE) throw IOException("Invalid length $length")
+    if (length !in 0..max) throw IOException("Invalid length $length (limit $max)")
     return length
 }
 
@@ -147,5 +154,16 @@ private const val WIRE_TYPE_FIXED32 = 5
 
 // Backup.backupManga is field 1, and each entry is length-delimited
 private const val ENTRY_TAG = 1L shl 3 or WIRE_TYPE_LENGTH_DELIMITED.toLong()
+
+/**
+ * Ceiling on one encoded entry, and on everything outside the entries put together.
+ *
+ * Both lengths are varints copied out of the file, so the reader is the only place that can stop a
+ * malformed or hostile backup from asking for an allocation the device cannot satisfy. The limits
+ * sit far above a real library - an entry is one series, and the metadata is preferences plus
+ * tracker data - while still being small enough that a corrupted length fails before the read.
+ */
+internal const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
+internal const val MAX_METADATA_BYTES = 64L * 1024 * 1024
 
 private const val NO_ENTRY = -1L

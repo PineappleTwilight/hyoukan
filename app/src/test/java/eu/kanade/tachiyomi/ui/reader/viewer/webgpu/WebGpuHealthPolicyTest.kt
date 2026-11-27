@@ -102,6 +102,15 @@ class WebGpuHealthPolicyTest {
     }
 
     @Test
+    fun `an unclean-session marker only counts for the build that wrote it`() {
+        // The marker survives a process crash, so it is the only verdict a SIGILL-struck session
+        // can leave behind. It must obey the same build scope as the strike count.
+        WebGpuHealthPolicy.uncleanSessionCounts(build, build).shouldBeTrue()
+        WebGpuHealthPolicy.uncleanSessionCounts(otherBuild, build).shouldBeFalse()
+        WebGpuHealthPolicy.uncleanSessionCounts(null, build).shouldBeFalse()
+    }
+
+    @Test
     fun `a record from a newer build is discarded too`() {
         // Downgrades happen (a bad beta rolled back locally); the comparison is equality, not
         // version ordering, so either direction gets a fresh try.

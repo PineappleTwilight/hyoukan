@@ -57,7 +57,7 @@ class ExtensionStoreService(
                         // KMK <--
                         json.decodeFromBufferedSource<NetworkExtensionStore>(source)
                     }
-                    else -> protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
+                    else -> protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readBoundedByteArray())
                 }
 
                 if (networkStore is NetworkLegacyExtensionRepo && networkStore.indexV2 != null) {
@@ -88,7 +88,7 @@ class ExtensionStoreService(
                         // "{..."
                         0x7B.toByte() -> json.decodeFromBufferedSource<NetworkExtensionStore.ExtensionList>(source)
                         else -> protoBuf.decodeFromByteArray<NetworkExtensionStore.ExtensionList>(
-                            source.readByteArray(),
+                            source.readBoundedByteArray(),
                         )
                     }
                         .toAvailableExtensions(store)
@@ -101,7 +101,7 @@ class ExtensionStoreService(
                     when (source.peek().readByte()) {
                         // "{..."
                         0x7B.toByte() -> json.decodeFromBufferedSource<NetworkExtensionStore>(source)
-                        else -> protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readByteArray())
+                        else -> protoBuf.decodeFromByteArray<NetworkExtensionStore>(source.readBoundedByteArray())
                     }
                         .extensionList!!
                         .toAvailableExtensions(store)

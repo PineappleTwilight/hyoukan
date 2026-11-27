@@ -32,6 +32,20 @@ class MangaMergeRepositoryImpl(
         return handler.awaitList { mergedQueries.selectMergedMangasById(id, MangaMapper::mapManga) }
     }
 
+    override suspend fun getMergedMangaByIds(ids: List<Long>): Map<Long, List<Manga>> {
+        if (ids.isEmpty()) return emptyMap()
+        val references = handler.awaitList { mergedQueries.selectByMergeIds(ids, MergedMangaMapper::map) }
+        val mangaIds = references.mapNotNull { it.mangaId }.distinct()
+        if (mangaIds.isEmpty()) return emptyMap()
+        val mangasById = handler.awaitList { mangaQueries.getMangaByIds(mangaIds, MangaMapper::mapManga) }
+            .associateBy { it.id }
+        return references
+            .mapNotNull { ref -> ref.mergeId?.let { mergeId -> mergeId to ref } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, refs) -> refs.mapNotNull { ref -> ref.mangaId?.let(mangasById::get) } }
+            .filterValues { it.isNotEmpty() }
+    }
+
     override suspend fun subscribeMergedMangaById(id: Long): Flow<List<Manga>> {
         return handler.subscribeToList { mergedQueries.selectMergedMangasById(id, MangaMapper::mapManga) }
     }

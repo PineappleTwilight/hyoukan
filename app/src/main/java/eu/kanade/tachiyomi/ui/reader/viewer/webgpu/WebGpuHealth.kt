@@ -45,6 +45,20 @@ object WebGpuHealth {
     private const val KEY_STRIKES = "dead_device_strikes"
     private const val KEY_BUILD = "dead_device_strikes_build"
 
+    /**
+     * A session whose device is dead and whose recovery ladder was exhausted, written while that
+     * session is still open.
+     *
+     * The close-time verdict cannot count a session that never reaches `destroy()`. A native
+     * SIGILL (the PowerVR readback crash) kills the process before any Kotlin close path runs, so
+     * the device that caused the black screen recorded no strike and every launch opened the same
+     * broken renderer again. This marker is the crash-surviving half: it is written when recovery
+     * gives up, cleared when a recovery succeeds or the session closes normally, and consumed as
+     * one strike on the next reader open when it is still there - i.e. exactly when the process
+     * (or the user) ended a session that never recovered.
+     */
+    private const val KEY_DEGRADED_IN_FLIGHT = "degraded_session_build"
+
     /** See [WebGpuHealthPolicy.SESSION_LOSS_STRIKE_THRESHOLD]; kept here for call sites. */
     const val SESSION_LOSS_STRIKE_THRESHOLD: Int = WebGpuHealthPolicy.SESSION_LOSS_STRIKE_THRESHOLD
 
@@ -105,6 +119,49 @@ object WebGpuHealth {
     }.getOrDefault(0)
 
     fun isDisabled(context: Context): Boolean = strikeCount(context) >= DISABLE_STRIKES
+
+    /**
+     * Marks the running session as having given up on its GPU device. See
+     * [KEY_DEGRADED_IN_FLIGHT]; the marker is only meaningful for [currentBuild], so a fix
+     * installed as a new build never inherits the previous one's crash record.
+     */
+    fun markDegradedSessionInFlight(context: Context) {
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_DEGRADED_IN_FLIGHT, currentBuild())
+                .apply()
+        }
+    }
+
+    /** Clears the marker: the session recovered, or it is closing through the normal verdict. */
+    fun clearDegradedSessionInFlight(context: Context) {
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(KEY_DEGRADED_IN_FLIGHT)
+                .apply()
+        }
+    }
+
+    /**
+     * Turns a marker left by a session that never closed cleanly into one strike.
+     *
+     * Called when a reader is about to be created, before [strikeCount] is read. A marker from
+     * another build is discarded without counting - the same rule the strike count itself
+     * follows.
+     */
+    fun commitUncleanSession(context: Context) {
+        runCatching {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val markerBuild = prefs.getString(KEY_DEGRADED_IN_FLIGHT, null) ?: return@runCatching
+            prefs.edit().remove(KEY_DEGRADED_IN_FLIGHT).apply()
+            if (!WebGpuHealthPolicy.uncleanSessionCounts(markerBuild, currentBuild())) return@runCatching
+            xLogE(
+                "WebGPU health: previous session never closed after giving up on its GPU device " +
+                    "($markerBuild) - recording one strike",
+            )
+            recordStrike(context)
+        }
+    }
 
     fun recordStrike(context: Context) {
         runCatching {

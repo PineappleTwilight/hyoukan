@@ -73,6 +73,9 @@ object SettingsCatalog {
         SettingsYakuyomiEngineAdvancedRoute,
         SettingsUpscalerRoute,
         SettingsAchievementsRoute,
+        // KMK -->
+        SettingsSourceHealthRoute,
+        SettingsNovelPluginsRoute,
         // KMK <--
         SettingsAdvancedRoute,
     ).filterNot { BuildConfig.IS_NOMTL && it in aiScreens }

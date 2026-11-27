@@ -11,6 +11,8 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.extension.api.ExtensionApi
 import eu.kanade.tachiyomi.extension.api.ExtensionUpdateNotifier
+import eu.kanade.tachiyomi.extension.health.SourceFailureClassifier
+import eu.kanade.tachiyomi.extension.health.SourceHealthStore
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.extension.model.InstallStep
 import eu.kanade.tachiyomi.extension.model.LoadResult
@@ -63,6 +65,7 @@ class ExtensionManager(
 ) {
     // KMK -->
     private val errorReporter: ExtensionErrorReporter = globalAppGraph.extensionErrorReporter
+    private val sourceHealthStore: SourceHealthStore = globalAppGraph.sourceHealthStore
     // KMK <--
 
     val scope = CoroutineScope(SupervisorJob())
@@ -275,6 +278,14 @@ class ExtensionManager(
     fun reportSourceError(source: Source?, throwable: Throwable, prompt: Boolean = true) {
         val src = source ?: return
         val pkgName = getExtensionPackage(src.id) ?: return
+        // KMK --> Local health evidence, separate from the prompt machinery: this feeds the
+        // diagnostics screen even when the watchdog is turned off, and stores no prompt state.
+        sourceHealthStore.recordFailure(
+            sourceId = src.id,
+            sourceName = src.name,
+            kind = SourceFailureClassifier.classify(throwable),
+        )
+        // KMK <--
         val installed = installedExtensionMapFlow.value[pkgName]
         val store = storeFor(pkgName)
         val name = installed?.name ?: src.name
@@ -310,6 +321,9 @@ class ExtensionManager(
     fun clearSourceError(source: Source?) {
         val src = source ?: return
         val pkgName = getExtensionPackage(src.id) ?: return
+        // KMK --> The source answered, so the recorded failure streak is over.
+        sourceHealthStore.recordSuccess(src.id, src.name)
+        // KMK <--
         errorReporter.clear(pkgName)
     }
     // KMK <--

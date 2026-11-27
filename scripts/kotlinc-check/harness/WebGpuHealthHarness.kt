@@ -100,6 +100,14 @@ fun main() {
     check("a newer build's record is discarded too", WebGpuHealthPolicy.shouldDiscard(record(2, "1.25.4-13001"), BUILD))
     check("a negative count reads as zero", WebGpuHealthPolicy.strikesForBuild(record(-3), BUILD) == 0)
 
+    // --- the crash-surviving marker ------------------------------------------------------------
+    check("an unclean marker from this build counts", WebGpuHealthPolicy.uncleanSessionCounts(BUILD, BUILD))
+    check(
+        "an unclean marker from another build does not",
+        !WebGpuHealthPolicy.uncleanSessionCounts(OTHER_BUILD, BUILD),
+    )
+    check("no unclean marker does not count", !WebGpuHealthPolicy.uncleanSessionCounts(null, BUILD))
+
     // --- consecutive, not cumulative ----------------------------------------------------------
     val cleared = WebGpuHealthPolicy.afterHealthySession(record(strikes = 1))
     check("a clean session clears one strike", WebGpuHealthPolicy.strikesForBuild(cleared, BUILD) == 0)

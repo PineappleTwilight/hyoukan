@@ -6,15 +6,29 @@ class Elements : Iterable<Element> {
     override fun iterator(): Iterator<Element> = emptyList<Element>().iterator()
 }
 
-open class Element {
-    fun tagName(): String = ""
-    fun attr(name: String): String = ""
+open class Node
+
+class TextNode : Node() {
+    fun text(): String = ""
 }
 
-class Document {
+open class Element : Node() {
+    fun tagName(): String = ""
+    fun attr(name: String): String = ""
+    fun children(): Elements = Elements()
+    fun childNodes(): List<Node> = emptyList()
+    fun select(css: String): Elements = Elements()
+    fun selectFirst(css: String): Element? = null
+    fun text(): String = ""
+    fun html(): String = ""
+}
+
+class Document : Element() {
     val allElements: Elements = Elements()
     fun getElementsByTag(name: String): Elements = Elements()
-    fun text(): String = ""
-    fun select(css: String): Elements = Elements()
-    fun first(): Element? = null
+}
+
+object Entities {
+    @JvmStatic
+    fun escape(string: String): String = string
 }

@@ -111,4 +111,24 @@ class WebGpuFilterChainTest {
             preset = WEBGPU_LUT_PRESET_NONE,
         ) shouldBe false
     }
+
+    // ---------- sharpen gate ----------
+
+    @Test
+    fun `zero sharpening attaches nothing`() {
+        isSharpenActive(0f) shouldBe false
+    }
+
+    @Test
+    fun `any positive sharpening attaches the pass`() {
+        isSharpenActive(0.01f) shouldBe true
+        isSharpenActive(0.5f) shouldBe true
+    }
+
+    @Test
+    fun `a negative stored amount is not an active pass`() {
+        // The filter clamps the value to zero on assignment, so this is the dead value the gate sees
+        // if a preference was written by an older or hand-edited store.
+        isSharpenActive(-0.2f) shouldBe false
+    }
 }

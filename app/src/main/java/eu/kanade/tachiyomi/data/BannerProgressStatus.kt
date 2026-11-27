@@ -23,8 +23,16 @@ open class BannerProgressStatus {
         _isRunning.emit(true)
     }
 
-    suspend fun stop() {
-        _isRunning.emit(false)
+    /**
+     * Marks the job finished without suspending.
+     *
+     * This is called from `WorkManager`'s cancel path and from a broadcast receiver's stop action,
+     * neither of which is a coroutine, and it used to be a `suspend` function wrapped in
+     * `runBlocking`. A [MutableStateFlow] write never actually suspends, so exposing the
+     * non-suspending form is what the callers should have had all along.
+     */
+    fun stop() {
+        _isRunning.value = false
     }
 
     val progress = MutableStateFlow(0f)

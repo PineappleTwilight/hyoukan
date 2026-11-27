@@ -152,11 +152,15 @@ class LibrarySelectionController(
         }
 
         if (deleteChapters) {
+            // One batch for the whole selection instead of a lookup per merged entry (#97).
+            val mergedByManga = getMergedMangaById.awaitAll(
+                mangas.filter { isMergedSourceId(it.source) }.map { it.id },
+            )
             mangas.forEach { manga ->
                 val source = sourceManager.get(manga.source) as? HttpSource
                 if (source != null) {
                     if (source is MergedSource) {
-                        val mergedMangas = getMergedMangaById.await(manga.id)
+                        val mergedMangas = mergedByManga[manga.id].orEmpty()
                         val sources = mergedMangas.distinctBy {
                             it.source
                         }.map { sourceManager.getOrStub(it.source) }

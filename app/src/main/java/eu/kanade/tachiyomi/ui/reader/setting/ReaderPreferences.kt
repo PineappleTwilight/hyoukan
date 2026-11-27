@@ -8,6 +8,10 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerConfig
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.preference.getEnum
 import tachiyomi.i18n.MR
@@ -240,6 +244,25 @@ class ReaderPreferences(
 
     fun webgpuContrast() = preferenceStore.getInt("webgpu_contrast", 100)
 
+    fun webgpuSharpen() = preferenceStore.getInt("webgpu_sharpen", 0)
+
+    /**
+     * Saved filter looks, in JSON. A malformed or truncated value decodes to an empty list so a
+     * bad restore cannot take the reader settings screen down with it.
+     */
+    fun webgpuFilterPresets() = preferenceStore.getObjectFromString(
+        "webgpu_filter_presets",
+        emptyList(),
+        serializer = { presets ->
+            Json.encodeToString(ListSerializer(WebGpuFilterPreset.serializer()), presets)
+        },
+        deserializer = { raw ->
+            runCatching {
+                Json.decodeFromString(ListSerializer(WebGpuFilterPreset.serializer()), raw)
+            }.getOrDefault(emptyList())
+        },
+    )
+
     fun webgpuHlg() = preferenceStore.getBoolean("webgpu_hlg", false)
 
     fun webgpuHlgExposure() = preferenceStore.getInt("webgpu_hlg_exposure", 0)
@@ -438,6 +461,9 @@ class ReaderPreferences(
 
         const val WEBGPU_CONTRAST_MIN = 0
         const val WEBGPU_CONTRAST_MAX = 200
+
+        const val WEBGPU_SHARPEN_MIN = 0
+        const val WEBGPU_SHARPEN_MAX = 200
 
         const val WEBGPU_HLG_EXPOSURE_MIN = -200
         const val WEBGPU_HLG_EXPOSURE_MAX = 200

@@ -101,6 +101,14 @@ class LocalSource(
         LocalEpubTextAdapter(context, fileSystem, wantsCoverPage)
     }
 
+    /**
+     * The FB2/TXT half (#104). Single files with no container, so they do not go through the
+     * archive lease the EPUB adapter owns.
+     */
+    private val plainBooks: LocalPlainBookAdapter by lazy {
+        LocalPlainBookAdapter(fileSystem)
+    }
+
     override val textCapabilities: TextCapabilities =
         // SEARCH rides on this source implementing `TextSearchSource` (see `searchInChapter`);
         // left out of the shared constant so extensions that adopt `EPUB` unchanged answer only
@@ -114,9 +122,19 @@ class LocalSource(
     // loader knows the source-level answer is not the whole story. Splitting it across two objects
     // would make that impossible to express.
 
-    override suspend fun getTextPageList(chapter: SChapter): List<TextPage> = books.textPages(chapter)
+    override suspend fun getTextPageList(chapter: SChapter): List<TextPage> =
+        if (plainBooks.handles(chapter)) {
+            plainBooks.textPages(chapter)
+        } else {
+            books.textPages(chapter)
+        }
 
-    override suspend fun getTableOfContents(chapter: SChapter): List<TocEntry> = books.tableOfContents(chapter)
+    override suspend fun getTableOfContents(chapter: SChapter): List<TocEntry> =
+        if (plainBooks.handles(chapter)) {
+            plainBooks.tableOfContents(chapter)
+        } else {
+            books.tableOfContents(chapter)
+        }
 
     /**
      * Finds [query] across the chapter's documents.
@@ -128,26 +146,48 @@ class LocalSource(
      * that could not say yes — so the button simply never appeared for an EPUB on disk.
      */
     override suspend fun searchInChapter(chapter: SChapter, query: String): List<TextSearchHit> =
-        books.searchInChapter(chapter, query)
+        if (plainBooks.handles(chapter)) {
+            plainBooks.searchInChapter(chapter, query)
+        } else {
+            books.searchInChapter(chapter, query)
+        }
 
     // Documents are read one at a time, so opening a novel is bounded by the document being opened
     // rather than by the length of the book. Declared here for the same reason as the rest of this
     // section: the host asks one object, and that object is the source.
     override suspend fun getTextPageIndex(chapter: SChapter): List<TextPage> =
-        books.textPageIndex(chapter)
+        if (plainBooks.handles(chapter)) {
+            plainBooks.textPageIndex(chapter)
+        } else {
+            books.textPageIndex(chapter)
+        }
 
     override suspend fun getTextPageText(chapter: SChapter, page: TextPage): String? =
-        books.textPageText(chapter, page)
+        if (plainBooks.handles(chapter)) {
+            plainBooks.textPageText(chapter, page)
+        } else {
+            books.textPageText(chapter, page)
+        }
 
-    override fun baseUrlFor(page: TextPage): String = books.baseUrlFor(page)
+    override fun baseUrlFor(page: TextPage): String {
+        val file = page.url.substringBeforeLast('#')
+        val ext = file.substringAfterLast('.', "").lowercase()
+        return if (ext == "fb2" || ext == "txt") file else books.baseUrlFor(page)
+    }
 
     override fun openResource(absoluteUrl: String): InputStream? = books.openResource(absoluteUrl)
 
     override fun contentTypeFor(absoluteUrl: String): String? = books.contentTypeFor(absoluteUrl)
 
-    override fun releaseResourceReader(chapterUrl: String) = books.releaseResourceReader(chapterUrl)
+    override fun releaseResourceReader(chapterUrl: String) {
+        plainBooks.release(chapterUrl)
+        books.releaseResourceReader(chapterUrl)
+    }
 
-    override fun releaseAllResourceReaders() = books.releaseAllResourceReaders()
+    override fun releaseAllResourceReaders() {
+        plainBooks.releaseAll()
+        books.releaseAllResourceReaders()
+    }
 
     /**
      * Whether [manga] is a novel, asked before anyone has said.
@@ -156,7 +196,8 @@ class LocalSource(
      * stray file in it, and calling that a book would hand the reader a prose view of something that
      * is mostly pictures.
      */
-    override fun entryTypeOf(manga: SManga): EntryType? = books.entryTypeOf(manga)
+    override fun entryTypeOf(manga: SManga): EntryType? =
+        books.entryTypeOf(manga) ?: plainBooks.entryTypeOf(manga.url)
 
     /**
      * Reads the spine to decide.
@@ -166,7 +207,7 @@ class LocalSource(
      * much text there is across the whole book.
      */
     override fun detectBookEntry(manga: SManga, chapter: SChapter): Boolean =
-        books.detectBookEntry(chapter)
+        plainBooks.detectBookEntry(chapter) || books.detectBookEntry(chapter)
 
     @Suppress("PrivatePropertyName")
     private val PopularFilters = FilterList(OrderBy.Popular(context))
@@ -521,6 +562,10 @@ class LocalSource(
                         format.file.epubReader(context).use { epub ->
                             epub.fillMetadata(manga, chapter)
                         }
+                    } else if (format is Format.Fb2 || format is Format.PlainText) {
+                        // KMK --> A prose book has no ComicInfo sidecar, and opening a .txt as an
+                        // archive throws. The file name already named the chapter.
+                        // KMK <--
                     } else {
                         getComicInfoForChapter(chapterFile) { stream, /* SY --> */ _ /* SY <-- */ ->
                             setChapterDetailsFromComicInfoFile(stream, chapter)
@@ -637,6 +682,10 @@ class LocalSource(
                         // KMK <--
                     }
                 }
+                // KMK --> FB2/TXT have no image entry the comic cover manager can read without a
+                // second parser for the FB2 binary block, so they keep the generated placeholder.
+                is Format.Fb2, is Format.PlainText -> null
+                // KMK <--
             }
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e) { "Error updating cover for ${manga.title}" }

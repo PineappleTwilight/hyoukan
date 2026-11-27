@@ -23,6 +23,9 @@ CREATE INDEX merged_merge_id_index ON merged(merge_id);
 selectByMergeId:
 SELECT * FROM merged WHERE merge_id = ?;
 
+selectByMergeIds:
+SELECT * FROM merged WHERE merge_id IN :mergeIds;
+
 selectByMergeUrl:
 SELECT * FROM merged WHERE merge_url = ?;
 

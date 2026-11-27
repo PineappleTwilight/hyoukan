@@ -511,6 +511,22 @@ SELECT
     scanlator_range_rules, is_light_novel
 FROM manga;
 
+-- KMK --> One round trip for a whole page of entries. Used by the library's merged-manga
+-- prefetch, where a per-id lookup was one SQLite dispatch per merged entry per filter pass.
+getMangaByIds:
+SELECT
+    id, source_id, remote_url, remote_title, remote_author, remote_artist, remote_description,
+    remote_genre, remote_status, remote_cover, remote_update_strategy, remote_memo,
+    user_favorite_at, user_notes, user_reader_flags, user_chapter_flags,
+    state_chapter_last_update, state_chapter_next_update, state_chapter_fetch_interval,
+    state_cover_last_modified, state_initialized,
+    last_modified_at, favorite_modified_at, version, is_syncing,
+    scanlator_priority, blacklisted_chapters, reread_count, rereading, reread_started_at,
+    scanlator_range_rules, is_light_novel
+FROM manga
+WHERE id IN :ids;
+-- KMK <--
+
 deleteById:
 DELETE FROM manga WHERE id = :id;
 -- SY <--

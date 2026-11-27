@@ -267,6 +267,17 @@ used to stay dead until recreated even after the pressure passed. The app's
 `recoveryChainRunning` guard keeps parallel chains from stacking on top of a running one: a new
 loss while recovery is in flight is absorbed by the running chain's retries.
 
+**A device loss is matched by native handle, never by wrapper identity.** The loss callback carries
+a `GPUDevice`; the companion holds another wrapper for the same native device, and the glue builds
+the callback's wrapper at dispatch time. Comparing the two with `!==` therefore calls a **live**
+device "stale" whenever the wrappers differ. The M8_4G report (2026-11-26) is the shape: a real
+`vkQueueSubmit failed with VK_ERROR_OUT_OF_DEVICE_MEMORY` was logged as `stale device-lost callback
+for a retired device`, `deviceLost` stayed false, and the next frame's texture readback mapped a
+buffer on the dead device — SIGILL, before any Kotlin recovery could run. `WebGpuRenderer` compares
+`lost.handle` with `deviceOrNull()?.handle`, so the stale guard still ignores a genuinely retired
+device without ever swallowing the current one. **If a dump shows that "stale" line immediately
+before a device-dependent native fault, this comparison is the first thing to check.**
+
 **A recovery that lost its device at birth now reports failure.** After `createSurface()` the
 recovery re-reads `deviceLost`: a surface build that fails (`VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`)
 loses the fresh device synchronously on the loss-callback executor, and recovery used to return
@@ -327,6 +338,15 @@ webgpureport exports; a PowerVR/nomtl emulator logcat with
   rule and it was not implemented: the count only climbed, so one unlucky session months ago
   counted toward disabling a device that had read fine ever since. A device that fails every
   session still has no clean close to clear it with, so the latch still latches.
+
+  **A crash cannot record a strike, so the failure is persisted while the session is alive.**
+  The verdict is computed in `destroy()`, and a native SIGILL (the PowerVR readback crash) never
+  reaches it: the device kept opening WebGPU and crashing on every launch, with nothing counting
+  toward the fallback. When `recoverDeviceWithRetries` gives up, `WebGpuViewer` now calls
+  `WebGpuHealth.markDegradedSessionInFlight`; a successful recovery (`DeviceRecoveredListener`) or
+  a normal close clears it; and `WebGpuProvider.create` consumes a leftover marker with
+  `commitUncleanSession` as one strike before it reads the count. The marker is build-scoped like
+  the count, so a fix always gets its own fresh tries.
 
 ### WHY THE WEBGPU VIEWER IS NOT OFFERED — the fallback decision, in order
 
@@ -996,6 +1016,7 @@ above — a type mismatch that a compiler will not catch.
 | `Re-driving ... last=unfinished` | The worker left the page mid-flight without completing a trace. Usually cancellation. |
 | `DecodeTrace STALL` | The watchdog saw a page past its stage deadline. The worker cannot report its own stall. |
 | `Device not available` / blank pages after backgrounding | Device loss; check the recovery path above, not the page. |
+| `stale device-lost callback for a retired device` on the **first** loss, immediately followed by `Device lost detected during texture readback` and a SIGILL in `WebGPU-Render-T` | The stale-fire guard is comparing wrapper **identity**, not the native handle. The glue builds the callback's `GPUDevice` at dispatch time, so the live device is called stale, `deviceLost` stays false, and the readback maps a buffer on a dead device. See *DEVICE LIFECYCLE - a device loss is matched by native handle*. |
 | `F/libc Fatal signal 11 (SIGSEGV), ... fault addr 0x0 ... (WebGPU-Render-T)` with `Java_androidx_webgpu_GPUQueue_submit` above `submitAndRelease` in the tombstone | Device loss landed **mid-frame**: `render()` passed its entry `isAvailable` gate, then the draw suspended (tile generation), and the loss invalidated the native queue before `submitAndRelease`. Submitting on the dead handle is a null-deref inside `libwebgpu_c_bundled` that kills the process — no Kotlin exception can catch it. `render()` re-checks `isAvailable` immediately before the submit and drops the frame; the residual recheck→JNI window cannot be closed from Kotlin (UNVERIFIED how wide). Same rule as `cleanup()`: once the device is lost, nothing drives its objects. |
 | `F/libc Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) ... (WebGPU-Render-T)` at `Java_androidx_webgpu_GPUQueue_submit`, preceded by a barrage of `GraphicBufferAllocator: Failed to allocate (4 x 4) layerCount 1 format 59 usage b00: 7` / `AHardwareBuffer ... failed` | **A frame landed while the window was being torn down.** `ReaderActivity` used to declare no `configChanges`, so rotating recreated the activity; it now does, so rotation is a surface resize through `WebGpuRenderer.resize()` (no teardown, no re-init — this in-flight wedge was the reason). Recreation still happens for other causes (e.g. locale change) — there, Compose's `dispatchSurfaceDestroyed` cancels the render job but does not wait for it, and the framework dismantles the window — its BufferQueue and every gralloc buffer behind the swapchain images (the format-59 BLOB failures) — as soon as the surfaceDestroyed callbacks return. A cancellation only lands at a suspension point, so a frame already past its last one (the fast tile path suspends only while generating) ran its whole `render` tail — submit and present — into that teardown, and the bundled Dawn aborted inside the submit. Fixed library-side: `ViewerSurface` registers `Surface.onDestroyed` (which runs on main *before* Compose cancels, while the framework is still holding the teardown off) and `WebGpuRenderer.detachSurface` sets a `surfaceDetached` gate plus drains the in-flight frame on the render mutex before returning. If it ever reappears, check that the destroy callback registration survived and that `render()` still gates on `surfaceDetached` at entry and at the submit. |
 | `device lost reason=1: CreateAndroidSurfaceKHR failed with VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`, preceded by `BufferQueueProducer ... connect: already connected` and `vulkan: native_window_api_connect() failed` | A **second** swapchain was created on a window the old one still owned. Dawn can defer `vkDestroySurfaceKHR` past `close()`, so recovery must drop the old `GPUSurface` *and* release the retained `ANativeWindow` (`NativeWindow.release`) **before** it builds the replacement — see `recoverFromDeviceLoss`. The `SurfaceTexture-0-…` name means the TextureView path (API < 34), where the window is a `SurfaceTexture`'s BufferQueue. **If it still appears on a current build, the surface-teardown pump failed — see the landmine below.** |
@@ -1426,7 +1447,7 @@ thing that runs.
 | `ColumnWidthHarness` | the continuous reader's column width: percent-per-side padding, monotonicity, the 20% floor, degenerate screens |
 | `DiagnosticsHarness` | the session report: a clean session is not notable, every anomaly is, the bounded rings stay bounded, and `render()` never throws |
 | `SessionHealthHarness` | the strike verdict: a chapter transition at exit is healthy (the regression), the black screen needs two decodes and five seconds (inclusive) **and both a presented frame and a page on screen** (the 2026-11-22 shape - walk flag true, `frames=0` - is struck), the four degraded shapes' precedence, negative counters, and HEALTHY as the only clean verdict |
-| `WebGpuHealthHarness` | the strike record's transitions: the threshold, the cap, the build scope (foreign and untagged counts discarded, re-tag on the next strike), a clean session clearing, the reset |
+| `WebGpuHealthHarness` | the strike record's transitions: the threshold, the cap, the build scope (foreign and untagged counts discarded, re-tag on the next strike), the crash-surviving unclean-session marker's build scope, a clean session clearing, the reset |
 | `WebGpuOfferHarness` | the provider's gate order: switch → health latch → renderer probe, that the probe is skipped once an earlier gate declines (it initialises the GPU device), and the precedence between all three |
 | `SwapchainRecoveryHarness` | the library's surface-recovery ladder, linked straight from `SwapchainRecoveryPolicy.kt`: the four exact boundaries, that a rung never repeats on the frames above it, the surface → device → GLES order, that a full streak reaches every step, and that a past-ceiling streak stays parked |
 | `TileCachePolicyHarness` | the cache switch and direct-path mip rule from the library: PowerVR is forced off regardless of the host request, every other adapter follows it, the chain is built to the 8px floor, and a 0.6x draw selects level 1 instead of aliasing on level 0 |

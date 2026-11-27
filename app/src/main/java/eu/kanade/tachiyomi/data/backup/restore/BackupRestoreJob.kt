@@ -23,7 +23,6 @@ import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import eu.kanade.tachiyomi.util.system.workManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
 import logcat.LogPriority
 import mihon.app.di.globalAppGraph
 import tachiyomi.core.common.i18n.stringResource
@@ -182,7 +181,7 @@ class BackupRestoreJob(private val context: Context, workerParams: WorkerParamet
             context.workManager.cancelUniqueWork(TAG)
             // KMK -->
             val backupRestoreStatus: BackupRestoreStatus = globalAppGraph.backupRestoreStatus
-            runBlocking { backupRestoreStatus.stop() }
+            backupRestoreStatus.stop()
             // KMK <--
         }
     }

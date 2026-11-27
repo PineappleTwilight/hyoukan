@@ -78,5 +78,15 @@ internal object WebGpuHealthPolicy {
 
     /** A user- or upgrade-driven reset. */
     fun afterReset(): Record = EMPTY
+
+    /**
+     * Whether a crash-surviving "degraded session in flight" marker counts for [build].
+     *
+     * The marker is written while a session that gave up on its GPU device is still running, so
+     * a native crash cannot lose it. It obeys the same build scope as the strike count: a build
+     * that replaced the defect must not inherit the mark, or the fix is never tried.
+     */
+    fun uncleanSessionCounts(markerBuild: String?, build: String): Boolean =
+        markerBuild != null && markerBuild == build
 }
 // KMK <--

@@ -9,6 +9,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.novel.NovelPluginSource
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.source.online.all.EHentai
@@ -98,7 +99,14 @@ class AndroidSourceManager(
                 ) { (a, b), c -> Triple(a, b, c) }
                 // KMK <--
                 // SY <--
-                .collectLatest { (extensions, enableExhentai/* KMK --> */, isHentaiEnabled/* KMK <-- */) ->
+                // KMK --> Installed novel plugins (#104): importing or deleting one rebuilds the
+                // source map through this flow, so no restart is needed.
+                .combine(globalAppGraph.novelPluginRepository.plugins) { triple, plugins ->
+                    triple to plugins
+                }
+                // KMK <--
+                .collectLatest { (triple, novelPlugins) ->
+                    val (extensions, enableExhentai, isHentaiEnabled) = triple
                     // KMK -->
                     try {
                         // KMK <--
@@ -145,6 +153,15 @@ class AndroidSourceManager(
                             // instance shows "Set the server address" on first browse, which is the
                             // same answer every other self-hosted source gives.
                             put(KOMGA_SOURCE_ID, Komga(context, KOMGA_SOURCE_ID))
+                            // KMK <--
+                            // KMK --> User-installed novel plugins (#104). Their ids come from a
+                            // range no extension uses; a deleted plugin leaves a stub behind so
+                            // its library rows still explain themselves.
+                            novelPlugins.forEach { plugin ->
+                                val source = NovelPluginSource(plugin, globalAppGraph.novelPluginRuntime)
+                                put(source.id, source)
+                                registerStubSource(StubSource.from(source))
+                            }
                             // KMK <--
                         }
                         // KMK -->

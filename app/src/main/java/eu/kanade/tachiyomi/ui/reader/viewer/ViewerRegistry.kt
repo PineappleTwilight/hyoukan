@@ -164,6 +164,12 @@ private object WebGpuProvider : ViewerProvider {
         // KMK <--
         val basePreferences = globalAppGraph.basePreferences
         val wantsHighQuality = basePreferences.highQualityRenderer().get()
+        // KMK --> A session that gave up on its GPU device writes a marker that outlives the
+        // process (a native SIGILL never reaches `destroy()`). Consume it before reading the
+        // strike count, so a device that crashes every launch still accumulates its strikes and
+        // falls back to the legacy viewer instead of opening the same black screen forever.
+        WebGpuHealth.commitUncleanSession(activity)
+        // KMK <--
         // KMK --> The gate itself is [webGpuOfferFor], a pure function: the order (switch, health,
         // renderer probe) is load-bearing and asserted offline. The probe is a lambda because it
         // initialises the GPU device, so it must not run for a reader that was never going to use

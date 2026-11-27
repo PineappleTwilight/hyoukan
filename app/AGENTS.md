@@ -197,6 +197,13 @@ repository interface, interactors); Settings → Data and storage → **Library 
   `LibraryImportAdapters` is the registry. Adding a service = one adapter + a line in the registry.
   Parsed entries carry `trackingLinks` (`ImportTrackingLink`: app tracker id + remote id + state),
   so auto-tracking is not MangaBaka-specific.
+- **MangaBaka ships two title shapes and both must parse.** The library API has a `series` object
+  with `titles` as an array of `{title, language, traits}`; the site download (`schema_version: 2`)
+  has no `series` at all, moves the series id to `source.mangabaka`, and writes `titles` as one
+  `{primary, native, romanized}` object. `MangabakaExportTitles` (custom serializer) accepts both,
+  and the importer resolves the id from either `series.id` / `entry.series_id` / `source.mangabaka`.
+  The export is huge but every row is one of those two shapes; a new key there is ignored, not a
+  reason to loosen the DTOs.
 - **Persistence is one JSON file** (`ImportSessionStore`, `filesDir/library_imports/sessions.json`)
   behind `ImportSessionRepository`, written through a temp file + rename and mutated under one
   mutex. Resumability is the `importedEntryIds` / `skippedEntryIds` sets; re-importing the same

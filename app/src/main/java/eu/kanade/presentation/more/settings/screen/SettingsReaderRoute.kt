@@ -3,16 +3,21 @@ package eu.kanade.presentation.more.settings.screen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalView
 import androidx.navigation3.runtime.NavKey
 import eu.kanade.presentation.more.settings.Preference
+import eu.kanade.presentation.reader.settings.WEBGPU_FILTER_PRESET_LIMIT
+import eu.kanade.presentation.reader.settings.WebGpuFilterPresetDialog
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderBottomButton
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences.Companion.zoomWideImagesAllowedList
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences.WebtoonScaleType
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
+import eu.kanade.tachiyomi.ui.reader.setting.WebGpuFilterPreset
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerConfig
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
 import kotlinx.collections.immutable.persistentListOf
@@ -570,6 +575,13 @@ data object SettingsReaderRoute : NavKey, SearchableRoute {
         val hlgExposure by hlgExposurePref.collectAsState()
         val lutPresetPref = readerPreferences.webgpuLutPreset()
         val lutPreset by lutPresetPref.collectAsState()
+        val sharpenPref = readerPreferences.webgpuSharpen()
+        val sharpen by sharpenPref.collectAsState()
+        val einkPref = readerPreferences.webgpuEinkPreset()
+        val eink by einkPref.collectAsState()
+        val presetsPref = readerPreferences.webgpuFilterPresets()
+        val presets by presetsPref.collectAsState()
+        var showPresetDialog by remember { mutableStateOf(false) }
         val lutIntensityPref = readerPreferences.webgpuLutIntensity()
         val lutIntensity by lutIntensityPref.collectAsState()
         val debugItems = if (eu.kanade.tachiyomi.util.system.isDebugBuildType) {
@@ -582,6 +594,39 @@ data object SettingsReaderRoute : NavKey, SearchableRoute {
             )
         } else {
             persistentListOf()
+        }
+
+        if (showPresetDialog) {
+            WebGpuFilterPresetDialog(
+                presets = presets,
+                current = WebGpuFilterPreset(
+                    name = "",
+                    brightness = brightness,
+                    contrast = contrast,
+                    sharpen = sharpen,
+                    lutPreset = lutPreset,
+                    lutIntensity = lutIntensity,
+                    eink = eink,
+                ),
+                onApply = { preset: WebGpuFilterPreset ->
+                    brightnessPref.set(preset.brightness)
+                    contrastPref.set(preset.contrast)
+                    sharpenPref.set(preset.sharpen)
+                    lutPresetPref.set(preset.lutPreset)
+                    lutIntensityPref.set(preset.lutIntensity)
+                    einkPref.set(preset.eink)
+                },
+                onSave = { preset: WebGpuFilterPreset ->
+                    presetsPref.set(
+                        (presets.filterNot { it.name == preset.name } + preset)
+                            .take(WEBGPU_FILTER_PRESET_LIMIT),
+                    )
+                },
+                onDelete = { preset: WebGpuFilterPreset ->
+                    presetsPref.set(presets.filterNot { it.name == preset.name })
+                },
+                onDismiss = { showPresetDialog = false },
+            )
         }
 
         return Preference.PreferenceGroup(
@@ -642,6 +687,19 @@ data object SettingsReaderRoute : NavKey, SearchableRoute {
                     title = stringResource(KMR.strings.pref_webgpu_contrast),
                     valueString = numberFormat.format(contrast / 100f),
                     onValueChanged = { contrastPref.set(it) },
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = sharpen,
+                    valueRange = ReaderPreferences.WEBGPU_SHARPEN_MIN..ReaderPreferences.WEBGPU_SHARPEN_MAX,
+                    title = stringResource(KMR.strings.pref_webgpu_sharpen),
+                    subtitle = stringResource(KMR.strings.pref_webgpu_sharpen_summary),
+                    valueString = numberFormat.format(sharpen / 100f),
+                    onValueChanged = { sharpenPref.set(it) },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.pref_webgpu_filter_presets),
+                    subtitle = stringResource(KMR.strings.pref_webgpu_filter_presets_summary),
+                    onClick = { showPresetDialog = true },
                 ),
                 Preference.PreferenceItem.SwitchPreference(
                     preference = hlgPref,

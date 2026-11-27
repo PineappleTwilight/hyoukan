@@ -341,6 +341,11 @@ dependencies {
     // Data serialization (JSON, protobuf, xml)
     implementation(kotlinx.bundles.serialization)
 
+    // KMK --> Novel plugins execute in the same QuickJS runtime the extension JS engine uses.
+    // core/common keeps this as an implementation dependency, so the app needs its own.
+    implementation(libs.bundles.js.engine)
+    // KMK <--
+
     // HTML parser
     implementation(libs.jsoup)
 

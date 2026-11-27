@@ -41,11 +41,12 @@ class LibraryDownloadController(
     }
 
     private suspend fun downloadNextChapters(amount: Int?, mangas: List<Manga>) {
+        // One batch for the whole selection: a merged entry used to cost a lookup each (#97).
+        val mergedByManga = mergedPrefetch(mangas)
         mangas.forEach { manga ->
             // SY -->
             if (isMergedSourceId(manga.source)) {
-                val mergedMangas = getMergedMangaById.await(manga.id)
-                    .associateBy { it.id }
+                val mergedMangas = mergedByManga[manga.id].orEmpty().associateBy { it.id }
                 getNextChapters.await(manga.id, mergeEnabled = smartScanlatorMergeEnabled())
                     .let { if (amount != null) it.take(amount) else it }
                     .groupBy { it.mangaId }
@@ -89,11 +90,11 @@ class LibraryDownloadController(
     }
 
     private suspend fun downloadBookmarkedChapters(mangas: List<Manga>) {
+        val mergedByManga = mergedPrefetch(mangas)
         mangas.forEach { manga ->
             // SY -->
             if (isMergedSourceId(manga.source)) {
-                val mergedMangas = getMergedMangaById.await(manga.id)
-                    .associateBy { it.id }
+                val mergedMangas = mergedByManga[manga.id].orEmpty().associateBy { it.id }
                 getBookmarkedChaptersByMangaId.await(manga.id)
                     .groupBy { it.mangaId }
                     .forEach ab@{ (mangaId, chapters) ->
@@ -131,5 +132,17 @@ class LibraryDownloadController(
                 }
             downloadManager.downloadChapters(manga, chapters)
         }
+    }
+
+    /**
+     * Merged children for every merged entry in a selection, fetched in one batch.
+     *
+     * Callers key into this per entry with `.orEmpty()`: a plain source has no children and a
+     * merged entry whose children were deleted reports none, exactly as the per-id lookup did.
+     */
+    private suspend fun mergedPrefetch(mangas: List<Manga>): Map<Long, List<Manga>> {
+        return getMergedMangaById.awaitAll(
+            mangas.filter { isMergedSourceId(it.source) }.map { it.id },
+        )
     }
 }

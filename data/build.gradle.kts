@@ -43,4 +43,7 @@ dependencies {
 
     implementation(libs.metro.runtime)
     implementation(libs.injekt)
+
+    testImplementation(libs.bundles.test)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

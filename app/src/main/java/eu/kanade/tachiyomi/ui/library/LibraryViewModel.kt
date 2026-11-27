@@ -659,11 +659,10 @@ class LibraryViewModel(
             // behind the button does.
             libraryPreferences.smartScanlatorMerge().changes(),
         ) { libraryManga, preferences, _, _, _ ->
-            // Pre-fetch merged manga data to avoid N+1 queries
-            val mergedMangaCache = mutableMapOf<Long, List<Manga>>()
-            libraryManga.filter { isMergedSourceId(it.manga.source) }.forEach { manga ->
-                mergedMangaCache[manga.manga.id] = getMergedMangaById.await(manga.manga.id)
-            }
+            // Pre-fetch merged manga data in one batch rather than a lookup per entry (#97).
+            val mergedMangaCache = getMergedMangaById.awaitAll(
+                libraryManga.filter { isMergedSourceId(it.manga.source) }.map { it.manga.id },
+            )
 
             libraryManga.map { manga ->
                 // Display mode based on user preference: take it from global library setting or category

@@ -163,6 +163,9 @@ class WebGpuConfig(
     var contrast = readerPreferences.webgpuContrast().get() / 100f
         private set
 
+    var sharpen = readerPreferences.webgpuSharpen().get() / 100f
+        private set
+
     var hlgEnabled = readerPreferences.webgpuHlg().get()
         private set
 
@@ -334,6 +337,7 @@ class WebGpuConfig(
         fastRender = fastRender,
         brightness = brightness,
         contrast = contrast,
+        sharpen = sharpen,
         hlgEnabled = hlgEnabled,
         hlgExposure = hlgExposure,
         lutPreset = lutPreset,
@@ -622,6 +626,12 @@ class WebGpuConfig(
         readerPreferences.webgpuContrast()
             .register(
                 { contrast = it / 100f },
+                { emitSettingsChange() },
+            )
+
+        readerPreferences.webgpuSharpen()
+            .register(
+                { sharpen = it / 100f },
                 { emitSettingsChange() },
             )
 

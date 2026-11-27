@@ -87,7 +87,8 @@
   - Subcategories inherit parent category settings by default unless changed
   - Needs category priority system for multi-category mangas
   - Implemented 2026-09-09: `CategoryReaderPreferences` (per-category + per-subcategory `readerForCategory`/`readerForSubcategory`, inherit parent, priority uses first matching category in manga's categoryIds)
-- [ ] **New**: Light novel support — *Feasibility: investigated 2026-08-27, feasible via new NovelViewer + LN SourceIds, reuses 70% of library/tracker stack*
+- [x] **New**: Light novel support — *Feasibility: investigated 2026-08-27, feasible via new NovelViewer + LN SourceIds, reuses 70% of library/tracker stack*
+  - Implemented 2026-11-26 (#104): local `.fb2`/`.txt` books import through the local source and render in the existing book reader (`PlainBookConverter` + `LocalPlainBookAdapter`), with a sandboxed QuickJS novel-plugin host (`NovelPluginRuntime`/`NovelPluginSource`, Settings → Advanced → Novel plugins, docs/novel-plugins.md). The plugin API is synchronous; LNReader's async/cheerio plugin format is explicitly not claimed.
   - Gated by `isLightNovelEnabled` (default `false`, like `isHentaiEnabled`); per-language sourceIds `LN_SOURCE_IDS` (18 locales, `LEWD_SOURCE_SERIES+100` range) mirroring `EHENTAI_EXT_SOURCES`/`EXHENTAI_EXT_SOURCES` in `SourceIds.kt`; helpers `Manga.isLightNovel()` / `Source.isLnBasedSource()` in `DomainSourceHelpers.kt`, `mangas.is_light_novel` column + migration 47
   - Domain reuse: `Manga`/`Chapter` same tables (`source` distinguishes), `NetworkToLocalManga`, `LibraryUpdateJob`, `Feed`, `TrackerManager` (AniList `type: NOVEL`/MAL `novel`) work free; persist browse `RaisedSearchMetadata` via `MangaMetadataRepository.insertMetadata` like EH fix 7ed6a92b6
   - Extensions: `NovelSource`/`TextPageSource` alongside `HttpSource.getPageList` or `Page(isText)` flag; delegated LN template (`NovelUpdates`/`Syosetu`/`Kakuyomu`) via `EnhancedHttpSource`/`DelegatedHttpSource` + `jsoup` HTML→clean text; ID range `LEWD_SOURCE_SERIES+100` for community
@@ -182,24 +183,23 @@
   - Should intelligently cache sequel/prequel metadata to avoid API abuse
   - See [#6](https://github.com/PineappleTwilight/houri/issues/6)
   - Implemented 2026-09-13: `MangaDexSequelPrequelProvider` (`exh/md/related/`, MangaDex relation API + cache), `RelatedMangasRow` widgets on `MangaScreen`, default OFF via `UiPreferences` + `SettingsBrowseScreen` toggle, preferred-tracker aware
-- [ ] **WebGPU Reader**: Image filter system
+- [x] **WebGPU Reader**: Image filter system
   - Has presets of things like grayscale, sepia, and more
   - Disabled by default
   - Allows the user to modify values on their own and create/use their saved presets
+  - Implemented 2026-11-26 (#103): brightness/contrast, grayscale, built-in warm/cool/sepia LUTs + custom `.cube`/`.3dlut`, e-ink preset, and (new) unsharp-mask sharpening with live sliders; named filter presets save/apply/delete in Reader settings
+  - Immersive filters (animated overlays) remain a future extension, not part of this item
   - Extension of this system should be made for "immersive filters"
     - These are essentially transparent animated gifs overlaid on top of the reader
     - Allows more immersion, for example sakura petals falling when reading a manga
     - Also has presets and custom user-uploaded gifs
-- [ ] **Library**: Per-category update scheduling intervals
+- [x] **Library**: Per-category update scheduling intervals
   - Each category gets its own library-update interval, instead of one global setting
   - A manga's interval should resolve from its category, with the global setting as the fallback for uncategorised manga
   - Subcategories should inherit from their parent unless given their own interval
   - See [#25](https://github.com/PineappleTwilight/houri/issues/25)
-  - NOT STARTED as of 2026-09-30. Notes for whoever picks it up:
-    - The scheduling itself lives in `LibraryUpdateJob`; a wrong interval means manga silently stops updating, so this is the highest-risk item of the current batch
-    - Needs somewhere to store a per-category interval before the job logic can be touched
-    - Verify any SQL directly (build a schema in `sqlite3`, apply the migration, exercise the query) the way migrations 56 and 57 were checked — it catches things a read-through does not
-    - Consider what happens to a category that is deleted while holding an interval, and to a manga that moves between categories
+  - Done: `Category.updateInterval` + migration 60, `GetCategoryUpdateInterval`/`SetCategoryUpdateInterval`, picker in the category screen, shortest-bound-interval resolution in `LibraryUpdateJob`
+  - 2026-11-26 (#102): subcategory inheritance added (nearest interval up the parent chain, cycle-safe); covered by `GetCategoryUpdateIntervalTest`
 
 
 ## Bugfixes

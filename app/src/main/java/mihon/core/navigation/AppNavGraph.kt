@@ -14,9 +14,11 @@ import eu.kanade.presentation.more.settings.screen.SettingsDiscordRoute
 import eu.kanade.presentation.more.settings.screen.SettingsDownloadRoute
 import eu.kanade.presentation.more.settings.screen.SettingsEhRoute
 import eu.kanade.presentation.more.settings.screen.SettingsLibraryRoute
+import eu.kanade.presentation.more.settings.screen.SettingsNovelPluginsRoute
 import eu.kanade.presentation.more.settings.screen.SettingsReaderRoute
 import eu.kanade.presentation.more.settings.screen.SettingsSearchScreen
 import eu.kanade.presentation.more.settings.screen.SettingsSecurityRoute
+import eu.kanade.presentation.more.settings.screen.SettingsSourceHealthRoute
 import eu.kanade.presentation.more.settings.screen.SettingsTrackingRoute
 import eu.kanade.presentation.more.settings.screen.SettingsUpscalerRoute
 import eu.kanade.presentation.more.settings.screen.SettingsWebhookRoute
@@ -552,6 +554,12 @@ fun EntryProviderScope<NavKey>.appEntries() {
     }
     entry<SettingsAdvancedRoute> {
         SettingsAdvancedRoute.Content()
+    }
+    entry<SettingsSourceHealthRoute> {
+        SettingsSourceHealthRoute.Content()
+    }
+    entry<SettingsNovelPluginsRoute> {
+        SettingsNovelPluginsRoute.Content()
     }
     // KMK --> exh debug menu
     entry<SettingsDebugRoute> {

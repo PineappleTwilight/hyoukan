@@ -21,7 +21,6 @@ import eu.kanade.tachiyomi.util.system.isOnline
 import eu.kanade.tachiyomi.util.system.isRunning
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import eu.kanade.tachiyomi.util.system.workManager
-import kotlinx.coroutines.runBlocking
 import logcat.LogPriority
 import mihon.app.di.globalAppGraph
 import tachiyomi.core.common.util.system.logcat
@@ -149,7 +148,7 @@ class SyncDataJob(private val context: Context, workerParams: WorkerParameters) 
                     wm.cancelWorkById(it.id)
                     // KMK -->
                     val syncStatus: SyncStatus = globalAppGraph.syncStatus
-                    runBlocking { syncStatus.stop() }
+                    syncStatus.stop()
                     // KMK <--
 
                     // Re-enqueue cancelled scheduled work

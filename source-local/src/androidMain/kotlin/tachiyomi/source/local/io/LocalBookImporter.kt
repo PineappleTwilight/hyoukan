@@ -119,7 +119,7 @@ class LocalBookImporter(
         return cleaned.takeIf {
             // `substringAfterLast` on the name, not the `UniFile.extension` extension property: this
             // is a String and the extension function only answers for a UniFile.
-            it.substringAfterLast('.', "").equals(EPUB_EXTENSION, ignoreCase = true)
+            it.substringAfterLast('.', "").lowercase() in BOOK_EXTENSIONS
         }
     }
 
@@ -139,6 +139,12 @@ class LocalBookImporter(
 
     private companion object {
         const val MAX_COLLISION_ATTEMPTS = 100
-        const val EPUB_EXTENSION = "epub"
+
+        /**
+         * Formats the book reader can open. FB2 and TXT join EPUB here because the import picker
+         * is the only way those formats enter the library, and rejecting them at the picker would
+         * make the reader-side support unreachable.
+         */
+        val BOOK_EXTENSIONS = setOf("epub", "fb2", "txt")
     }
 }

@@ -37,10 +37,10 @@ class LibraryFilterHandler(
         includedCategories: ImmutableSet<Long>,
         excludedCategories: ImmutableSet<Long>,
     ): List<LibraryItem> {
-        val mergedCache = mutableMapOf<Long, List<Manga>>()
-        items.filter { isMergedSourceId(it.libraryManga.manga.source) }.forEach { item ->
-            mergedCache[item.libraryManga.manga.id] = getMergedMangaById.await(item.libraryManga.manga.id)
-        }
+        val mergedCache = getMergedMangaById.awaitAll(
+            items.filter { isMergedSourceId(it.libraryManga.manga.source) }
+                .map { it.libraryManga.manga.id },
+        )
 
         val downloadedOnly = preferences.globalFilterDownloaded
         val skipOutside = preferences.skipOutsideReleasePeriod

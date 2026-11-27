@@ -49,4 +49,63 @@ class GetCategoryUpdateIntervalTest {
     fun `a category the entry is not in is ignored`() {
         days(setOf(1L), mapOf(1L to 7, 5L to 1)) shouldBe 7
     }
+
+    // ---------- subcategory inheritance (#102) ----------
+
+    private fun daysWithParents(
+        categories: Set<Long>,
+        intervals: Map<Long, Int>,
+        parents: Map<Long, Long>,
+    ) = GetCategoryUpdateInterval.intervalDaysFor(intervals, parents, categories)
+
+    @Test
+    fun `a subcategory without an interval inherits its parent's`() {
+        daysWithParents(setOf(2L), mapOf(1L to 7), mapOf(2L to 1L)) shouldBe 7
+    }
+
+    @Test
+    fun `a subcategory's own interval beats the parent's`() {
+        daysWithParents(setOf(2L), mapOf(1L to 7, 2L to 1), mapOf(2L to 1L)) shouldBe 1
+    }
+
+    @Test
+    fun `inheritance walks more than one level`() {
+        daysWithParents(
+            categories = setOf(3L),
+            intervals = mapOf(1L to 14),
+            parents = mapOf(2L to 1L, 3L to 2L),
+        ) shouldBe 14
+    }
+
+    @Test
+    fun `an unbound parent leaves the schedule alone`() {
+        daysWithParents(setOf(2L), mapOf(3L to 7), mapOf(2L to 1L)) shouldBe null
+    }
+
+    @Test
+    fun `the shortest interval wins across inherited ones`() {
+        // One bound top-level category at monthly, one subcategory inheriting a daily parent.
+        daysWithParents(
+            categories = setOf(1L, 3L),
+            intervals = mapOf(1L to 30, 2L to 1),
+            parents = mapOf(3L to 2L),
+        ) shouldBe 1
+    }
+
+    @Test
+    fun `a category pointing at itself does not loop`() {
+        daysWithParents(setOf(5L), mapOf(1L to 7), mapOf(5L to 5L)) shouldBe null
+    }
+
+    @Test
+    fun `a parent cycle terminates with no interval`() {
+        // Not a shape the UI can produce, but a restored or synced row could. The answer is the
+        // same as an unbound category; hanging the update job is not.
+        daysWithParents(setOf(1L), mapOf(3L to 7), mapOf(1L to 2L, 2L to 1L)) shouldBe null
+    }
+
+    @Test
+    fun `the category zero sentinel is not walked as a parent`() {
+        daysWithParents(setOf(2L), mapOf(0L to 1, 1L to 7), mapOf(2L to 0L)) shouldBe null
+    }
 }
