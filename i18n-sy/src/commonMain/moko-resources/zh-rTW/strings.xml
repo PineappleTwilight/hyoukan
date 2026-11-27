@@ -678,4 +678,12 @@
     <string name="final_chapter">終章</string>
     <string name="pref_include_chapter_url_hash">包含章節網址雜湊值</string>
     <string name="pref_include_chapter_url_hash_desc">將章節網址的 MD5 雜湊值前六個字元附加至章節檔案或資料夾名。</string>
+    <string name="pref_sync_protocol_v2">使用協議 v2</string>
+    <string name="pref_sync_protocol_v2_summ">伺服器端合併與增量同步。需要 SyncYomi 1.6+。關閉則維持傳統的完整書櫃同步</string>
+    <string name="pref_show_vert_seekbar_landscape">橫向模式顯示垂直進度條</string>
+    <string name="pref_show_vert_seekbar_landscape_summary">在橫向模式時啟用垂直進度條</string>
+    <string name="pref_left_handed_vertical_seekbar">左手模式垂直進度條</string>
+    <string name="pref_left_handed_vertical_seekbar_summary">切換進度條顯示在哪一側</string>
+    <string name="pref_force_horz_seekbar">強制使用水平進度條</string>
+    <string name="pref_force_horz_seekbar_summary">完全移除垂直進度條並改用水平進度條</string>
 </resources>
