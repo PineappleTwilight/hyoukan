@@ -418,6 +418,17 @@ chose the renderer. Its rows are hand-built from `presentation-core`'s `Settings
 settings framework: the values are floats the stylesheet reads as page fractions, and tri-states,
 which the framework's int-slider and switch helpers cannot express.
 
+**A slider row is controlled, so its value must come from state that can change.** Material3's
+`Slider` never moves its own thumb while an `onValueChange` consumer exists: it draws whatever
+`value` the last composition handed it. A row that reads the setting with `.get()` during
+composition therefore samples it once and can never move — the write lands, the store holds the new
+number, and the thumb stays put until the sheet is closed and reopened, which is exactly how this
+was reported for four rows (auto-scroll speed, read-aloud rate, page-turn speed, status-line size).
+Every slider here now goes through `PrefSliderItem` / `PrefFloatSliderItem`, which collect the
+preference and keep the dragged value locally, and the page's typography flow is `remember`ed — a
+fresh `values()` instance per recomposition restarts `collectAsState`'s collector on every frame,
+which a drag produces one of.
+
 **While a book is open, the settings sheet offers only what a book can use.** The reading-mode tab
 is not offered at all (a book's renderer is fixed; every row there — scale types, crop, spreads,
 per-viewer tap layouts — is an image-reader setting that would silently do nothing), the colour

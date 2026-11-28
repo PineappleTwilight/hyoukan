@@ -525,7 +525,14 @@ private fun MangaScreenSmallImpl(
     val relatedMangasEnabled by globalAppGraph.sourcePreferences.relatedMangas().collectAsState()
     val expandRelatedMangas by uiPreferences.expandRelatedMangas().collectAsState()
     val showRelatedMangasInOverflow by uiPreferences.relatedMangasInOverflow().collectAsState()
+    val showScanlatorPriority by uiPreferences.showScanlatorPriority().collectAsState()
+    val showScanlatorPriorityInOverflow by uiPreferences.scanlatorPriorityInOverflow().collectAsState()
     val showSequelPrequel by uiPreferences.showSequelPrequel().collectAsState()
+    // KMK --> The entry page's scanlator-priority row and its toolbar-overflow twin share one
+    // destination, so the two placements cannot disagree about which screen they open.
+    val backStack = LocalBackStack.current
+    val openScanlatorPriority: () -> Unit = { backStack.add(ScanlatorPreferenceRoute(state.manga.id)) }
+    // KMK <--
 
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
     var fabSize by remember { mutableStateOf(IntSize.Zero) }
@@ -588,6 +595,9 @@ private fun MangaScreenSmallImpl(
                     !expandRelatedMangas &&
                         showRelatedMangasInOverflow &&
                         !isMergedSourceId(state.manga.source)
+                },
+                onClickScanlatorPriority = openScanlatorPriority.takeIf {
+                    showScanlatorPriority && showScanlatorPriorityInOverflow
                 },
                 // KMK <--
                 onClickRecommend = onRecommendClicked.takeIf { state.showRecommendationsInOverflow },
@@ -944,36 +954,38 @@ private fun MangaScreenSmallImpl(
                     // SY <--
 
                     // KMK -->
-                    item(key = "scanlator-preference-${state.manga.id}") {
-                        val entryNavigator = LocalBackStack.current
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    entryNavigator.add(ScanlatorPreferenceRoute(state.manga.id))
+                    // The overflow placement is the same entry, not a second one: with the
+                    // preference on, the row goes away and the toolbar's ⋮ carries it; with the
+                    // entry itself hidden, neither is offered.
+                    if (showScanlatorPriority && !showScanlatorPriorityInOverflow) {
+                        item(key = "scanlator-preference-${state.manga.id}") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable(onClick = openScanlatorPriority)
+                                    .padding(horizontal = MaterialTheme.padding.medium)
+                                    .padding(vertical = MaterialTheme.padding.small),
+                            ) {
+                                Text(
+                                    text = stringResource(KMR.strings.scanlator_priority),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                val priorityNames = state.manga.scanlatorPriority
+                                val subtitle = if (priorityNames.isEmpty()) {
+                                    stringResource(KMR.strings.scanlator_priority_description)
+                                } else {
+                                    buildString {
+                                        append(priorityNames.take(2).joinToString(separator = ", "))
+                                        val remaining = priorityNames.size - 2
+                                        if (remaining > 0) append(" +$remaining")
+                                    }
                                 }
-                                .padding(horizontal = MaterialTheme.padding.medium)
-                                .padding(vertical = MaterialTheme.padding.small),
-                        ) {
-                            Text(
-                                text = stringResource(KMR.strings.scanlator_priority),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            val priorityNames = state.manga.scanlatorPriority
-                            val subtitle = if (priorityNames.isEmpty()) {
-                                stringResource(KMR.strings.scanlator_priority_description)
-                            } else {
-                                buildString {
-                                    append(priorityNames.take(2).joinToString(separator = ", "))
-                                    val remaining = priorityNames.size - 2
-                                    if (remaining > 0) append(" +$remaining")
-                                }
+                                Text(
+                                    text = subtitle,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
-                            Text(
-                                text = subtitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                     // KMK <--
@@ -1127,7 +1139,14 @@ private fun MangaScreenLargeImpl(
     val relatedMangasEnabled by globalAppGraph.sourcePreferences.relatedMangas().collectAsState()
     val expandRelatedMangas by uiPreferences.expandRelatedMangas().collectAsState()
     val showRelatedMangasInOverflow by uiPreferences.relatedMangasInOverflow().collectAsState()
+    val showScanlatorPriority by uiPreferences.showScanlatorPriority().collectAsState()
+    val showScanlatorPriorityInOverflow by uiPreferences.scanlatorPriorityInOverflow().collectAsState()
     val showSequelPrequel by uiPreferences.showSequelPrequel().collectAsState()
+    // KMK --> The entry page's scanlator-priority row and its toolbar-overflow twin share one
+    // destination, so the two placements cannot disagree about which screen they open.
+    val backStack = LocalBackStack.current
+    val openScanlatorPriority: () -> Unit = { backStack.add(ScanlatorPreferenceRoute(state.manga.id)) }
+    // KMK <--
 
     var layoutSize by remember { mutableStateOf(IntSize.Zero) }
     var fabSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1183,6 +1202,9 @@ private fun MangaScreenLargeImpl(
                     !expandRelatedMangas &&
                         showRelatedMangasInOverflow &&
                         !isMergedSourceId(state.manga.source)
+                },
+                onClickScanlatorPriority = openScanlatorPriority.takeIf {
+                    showScanlatorPriority && showScanlatorPriorityInOverflow
                 },
                 // KMK <--
                 onClickRecommend = onRecommendClicked.takeIf { state.showRecommendationsInOverflow },
@@ -1497,36 +1519,38 @@ private fun MangaScreenLargeImpl(
                             }
                             // KMK <--
                             // KMK -->
-                            item(key = "scanlator-preference-${state.manga.id}-end") {
-                                val entryNavigator = LocalBackStack.current
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            entryNavigator.add(ScanlatorPreferenceRoute(state.manga.id))
+                            // Hidden while the toolbar overflow carries this entry, and hidden
+                            // entirely when the entry itself is switched off (see the compact
+                            // layout's copy of this row).
+                            if (showScanlatorPriority && !showScanlatorPriorityInOverflow) {
+                                item(key = "scanlator-preference-${state.manga.id}-end") {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(onClick = openScanlatorPriority)
+                                            .padding(horizontal = MaterialTheme.padding.medium)
+                                            .padding(vertical = MaterialTheme.padding.small),
+                                    ) {
+                                        Text(
+                                            text = stringResource(KMR.strings.scanlator_priority),
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                        val priorityNames = state.manga.scanlatorPriority
+                                        val subtitle = if (priorityNames.isEmpty()) {
+                                            stringResource(KMR.strings.scanlator_priority_description)
+                                        } else {
+                                            buildString {
+                                                append(priorityNames.take(2).joinToString(separator = ", "))
+                                                val remaining = priorityNames.size - 2
+                                                if (remaining > 0) append(" +$remaining")
+                                            }
                                         }
-                                        .padding(horizontal = MaterialTheme.padding.medium)
-                                        .padding(vertical = MaterialTheme.padding.small),
-                                ) {
-                                    Text(
-                                        text = stringResource(KMR.strings.scanlator_priority),
-                                        style = MaterialTheme.typography.titleMedium,
-                                    )
-                                    val priorityNames = state.manga.scanlatorPriority
-                                    val subtitle = if (priorityNames.isEmpty()) {
-                                        stringResource(KMR.strings.scanlator_priority_description)
-                                    } else {
-                                        buildString {
-                                            append(priorityNames.take(2).joinToString(separator = ", "))
-                                            val remaining = priorityNames.size - 2
-                                            if (remaining > 0) append(" +$remaining")
-                                        }
+                                        Text(
+                                            text = subtitle,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
-                                    Text(
-                                        text = subtitle,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
                                 }
                             }
                             // KMK <--

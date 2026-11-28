@@ -59,6 +59,8 @@ import eu.kanade.tachiyomi.data.database.DatabaseExporter
 import eu.kanade.tachiyomi.data.download.DownloadBulkDelete
 import eu.kanade.tachiyomi.data.export.LibraryExporter
 import eu.kanade.tachiyomi.data.export.LibraryExporter.ExportOptions
+import eu.kanade.tachiyomi.data.export.LibraryInteropExporter
+import eu.kanade.tachiyomi.data.export.LibraryInteropFormat
 import eu.kanade.tachiyomi.util.system.DeviceUtil
 import eu.kanade.tachiyomi.util.system.toast
 import exh.log.xLogE
@@ -131,6 +133,7 @@ data object SettingsDataRoute : NavKey, SearchableRoute {
             getExportGroup(),
             // KMK --> Resumable imports from other services' library exports
             getImportGroup(),
+            getInteropGroup(backupPreferences = backupPreferences),
             // KMK <--
         ) +
             // SY -->
@@ -648,6 +651,68 @@ data object SettingsDataRoute : NavKey, SearchableRoute {
                     title = stringResource(KMR.strings.library_import_add),
                     subtitle = stringResource(KMR.strings.library_import_add_summary),
                     onClick = { backStack.add(ImportSessionsRoute) },
+                ),
+            ),
+        )
+    }
+    // KMK <--
+
+    // KMK --> Kototoro/Usagi/Aniyomi interop (#106). Off by default: the switch gates both the
+    // extra import formats and these export buttons, so a reader who never turns it on sees a
+    // settings screen that is exactly what it was.
+    @Composable
+    private fun getInteropGroup(backupPreferences: BackupPreferences): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        val enabled by backupPreferences.libraryInterop().collectAsState()
+        val exporter = remember { globalAppGraph.libraryInteropExporter }
+
+        @Composable
+        fun exportLauncher(target: LibraryInteropFormat.Target) = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/zip"),
+        ) { uri ->
+            if (uri == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                when (val result = withIOContext { exporter.export(target, uri) }) {
+                    is LibraryInteropExporter.Result.Success ->
+                        context.toast(
+                            context.stringResource(
+                                KMR.strings.library_interop_export_done,
+                                result.summary.exportedEntries,
+                            ),
+                        )
+
+                    LibraryInteropExporter.Result.EmptyLibrary ->
+                        context.toast(KMR.strings.library_interop_export_empty)
+
+                    is LibraryInteropExporter.Result.Failed ->
+                        context.toast(KMR.strings.library_interop_export_failed)
+                }
+            }
+        }
+
+        val kototoroExport = exportLauncher(LibraryInteropFormat.Target.KOTOTORO)
+        val usagiExport = exportLauncher(LibraryInteropFormat.Target.USAGI)
+
+        return Preference.PreferenceGroup(
+            title = stringResource(KMR.strings.library_interop),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = backupPreferences.libraryInterop(),
+                    title = stringResource(KMR.strings.library_interop),
+                    subtitle = stringResource(KMR.strings.library_interop_summary),
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.library_interop_export_kototoro),
+                    subtitle = if (enabled) stringResource(KMR.strings.library_interop_export_summary) else null,
+                    enabled = enabled,
+                    onClick = { kototoroExport.launch(LibraryInteropFormat.Target.KOTOTORO.fileName) },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(KMR.strings.library_interop_export_usagi),
+                    subtitle = if (enabled) stringResource(KMR.strings.library_interop_export_summary) else null,
+                    enabled = enabled,
+                    onClick = { usagiExport.launch(LibraryInteropFormat.Target.USAGI.fileName) },
                 ),
             ),
         )

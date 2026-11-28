@@ -1,12 +1,13 @@
 // Runs the REAL provider gate (compiled straight from
-// app/.../viewer/webgpu/WebGpuOffer.kt and WebGpuHealthPolicy.kt).
+// app/.../viewer/webgpu/WebGpuOffer.kt).
 //
 // This is the decision behind "the WebGPU reader keeps falling back": which gate stopped the
-// renderer, and in what order. The order is load-bearing - the switch outranks the health latch,
-// the latch outranks the renderer probe, and the probe must not run at all when either of the first
-// two has already decided, because reading `WebGpuRenderer.isAvailable` initialises the GPU device.
+// renderer, and in what order. There are two gates: the user's switch, then the renderer probe.
+// **There is no health gate** - the record in WebGpuHealth is diagnostic only, so no history of
+// degraded sessions can demote the renderer to the legacy viewer. The probe must not run when the
+// switch has already declined, because reading `WebGpuRenderer.isAvailable` initialises the GPU
+// device.
 
-import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuHealthPolicy
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuOffer
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.webGpuOfferFor
 
@@ -25,9 +26,8 @@ private var probed = false
 
 private fun offer(
     wantsHighQuality: Boolean = true,
-    strikes: Int = 0,
     available: Boolean = true,
-): WebGpuOffer = webGpuOfferFor(wantsHighQuality, strikes) {
+): WebGpuOffer = webGpuOfferFor(wantsHighQuality) {
     probed = true
     available
 }
@@ -35,7 +35,7 @@ private fun offer(
 fun main() {
     // --- the happy path ----------------------------------------------------------------------
     probed = false
-    check("a wanted, healthy, available renderer is offered", offer() == WebGpuOffer.OFFERED)
+    check("a wanted, available renderer is offered", offer() == WebGpuOffer.OFFERED)
     check("the offered path probes the renderer", probed)
 
     // --- the switch ------------------------------------------------------------------------
@@ -43,24 +43,8 @@ fun main() {
     check("the switch being off declines", offer(wantsHighQuality = false) == WebGpuOffer.SWITCH_OFF)
     check("the switch-off path does not probe the renderer", !probed)
     check(
-        "the switch outranks a disabled health record",
-        offer(wantsHighQuality = false, strikes = 99, available = false) == WebGpuOffer.SWITCH_OFF,
-    )
-
-    // --- the health latch ------------------------------------------------------------------
-    probed = false
-    check(
-        "two strikes decline",
-        offer(strikes = WebGpuHealthPolicy.DISABLE_STRIKES) == WebGpuOffer.HEALTH_DISABLED,
-    )
-    check("the health decline does not probe the renderer", !probed)
-    check(
-        "one strike below the threshold still reaches the probe",
-        offer(strikes = WebGpuHealthPolicy.DISABLE_STRIKES - 1) == WebGpuOffer.OFFERED,
-    )
-    check(
-        "the health verdict outranks an unavailable renderer",
-        offer(strikes = 2, available = false) == WebGpuOffer.HEALTH_DISABLED,
+        "the switch outranks an unavailable renderer",
+        offer(wantsHighQuality = false, available = false) == WebGpuOffer.SWITCH_OFF,
     )
 
     // --- the renderer probe ----------------------------------------------------------------
@@ -68,12 +52,12 @@ fun main() {
     check("an unavailable renderer declines", offer(available = false) == WebGpuOffer.RENDERER_UNAVAILABLE)
     check("the unavailable path probes the renderer", probed)
 
-    // --- defensive -------------------------------------------------------------------------
-    check("a negative strike count is treated as none", offer(strikes = -1) == WebGpuOffer.OFFERED)
-    check(
-        "a very large strike count is still just disabled",
-        offer(strikes = Int.MAX_VALUE) == WebGpuOffer.HEALTH_DISABLED,
-    )
+    // --- no health gate --------------------------------------------------------------------
+    // The signature carries the assertion: `webGpuOfferFor` takes the switch and the probe only.
+    // A re-added strike count has to change this line, the provider and the JUnit test.
+    probed = false
+    check("a healthy device offers the renderer", offer() == WebGpuOffer.OFFERED)
+    check("every offer decision probes the renderer once", probed)
 
     if (failures == 0) {
         println("ALL PASS")

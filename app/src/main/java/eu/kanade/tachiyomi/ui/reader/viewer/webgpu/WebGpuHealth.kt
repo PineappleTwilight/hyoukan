@@ -8,13 +8,11 @@ import exh.log.xLogE
 /**
  * Cross-session record of WebGPU sessions whose device died without coming back.
  *
- * The failure shape this exists for (field reports, 2026-11): the renderer's device is lost
- * (`vkQueueSubmit failed with VK_ERROR_OUT_OF_DEVICE_MEMORY` - 32-bit processes and small GPU
- * heaps are the recurring profile), every recovery attempt gives up, and the reader stays
- * black until the process is killed - after which the next session does exactly the same
- * thing. No recovery ladder can fix a GPU that has no memory left, so the honest fallback is
- * the legacy viewer; this is what turns repeated dead sessions into that fallback instead of
- * a black screen the user must discover all over again every launch.
+ * **Diagnostics only.** This record exists so a session that went wrong leaves a trace in the
+ * in-app log - the one channel a phone-only user can send. It never decides which viewer a reader
+ * gets: the WebGPU renderer is the reader's standard viewer, and a lost GPU device is answered by
+ * rebuilding it (`WebGpuRenderer.recoverFromDeviceLoss`, the app's recovery chain and
+ * `noteObservedDeviceLoss`), not by demoting the user to the legacy pager on later launches.
  *
  * This object is the Android half - storage, the app's build name, the in-app log. The decision
  * itself is [WebGpuHealthPolicy] (the strike record's transitions) and [sessionVerdict] (whether a
@@ -29,16 +27,10 @@ import exh.log.xLogE
  * swapchain, that lost the device [SESSION_LOSS_STRIKE_THRESHOLD] times, or that decoded pages
  * without ever drawing any. A *clean* session clears the count - "consecutive" is the rule.
  *
- * [DISABLE_STRIKES] strikes stop the WebGPU viewer from being offered. Recovery paths: the About
- * screen easter egg (the same one that disables the RAM gate), turning the high-quality renderer
- * off and on again (the user asking for it again), and installing a new build - the count is
- * scoped to the build that recorded it (see [currentBuild]), so a fix is never held to an older
- * build's verdict. That last rule is the one that makes "the reader still falls back after we
- * fixed it" impossible.
- *
- * Every strike and every discarded count is written to the **in-app log**; a phone-only user never
- * sees logcat, and "the reader stopped opening on WebGPU" with no record of why reads as a mystery
- * regression.
+ * The count is scoped to the build that recorded it (see [currentBuild]), so a fix is never
+ * reported as an older build's problem. Every strike and every discarded count is written to the
+ * **in-app log** with the session's diagnostics block: the strike says *that* a session went
+ * wrong, the block says what it did.
  */
 object WebGpuHealth {
     private const val PREFS = "webgpu_health"
@@ -62,7 +54,11 @@ object WebGpuHealth {
     /** See [WebGpuHealthPolicy.SESSION_LOSS_STRIKE_THRESHOLD]; kept here for call sites. */
     const val SESSION_LOSS_STRIKE_THRESHOLD: Int = WebGpuHealthPolicy.SESSION_LOSS_STRIKE_THRESHOLD
 
-    /** See [WebGpuHealthPolicy.DISABLE_STRIKES]; kept here for call sites. */
+    /**
+     * See [WebGpuHealthPolicy.DISABLE_STRIKES]. **Diagnostic only**: nothing gates the renderer on
+     * this count any more. It stays because the strike record and its harness still describe the
+     * threshold a degraded session is counted against.
+     */
     const val DISABLE_STRIKES: Int = WebGpuHealthPolicy.DISABLE_STRIKES
 
     /**
@@ -143,11 +139,11 @@ object WebGpuHealth {
     }
 
     /**
-     * Turns a marker left by a session that never closed cleanly into one strike.
+     * Consumes a marker left by a session that never closed cleanly and records one diagnostic
+     * strike (with the session block) in the in-app log.
      *
-     * Called when a reader is about to be created, before [strikeCount] is read. A marker from
-     * another build is discarded without counting - the same rule the strike count itself
-     * follows.
+     * Called when a reader is about to be created; a marker from another build is discarded
+     * without counting. **Nothing gates on the result** - see the object's header.
      */
     fun commitUncleanSession(context: Context) {
         runCatching {
@@ -177,14 +173,9 @@ object WebGpuHealth {
             // says what it did. Neither half is much use to a field report without the other.
             val diagnostics = runCatching { WebGpuDiagnostics.render() }.getOrNull()
             xLogE(
-                "WebGPU health: degraded session recorded (strike ${next.strikes}/$DISABLE_STRIKES, build $build)" +
-                    if (next.strikes >= DISABLE_STRIKES) {
-                        " - WebGPU viewer disabled; the standard reader will be used until " +
-                            "the About-screen easter egg resets it, or the high-quality switch " +
-                            "is turned off and on again"
-                    } else {
-                        ""
-                    } + (diagnostics?.let { "\n$it" } ?: ""),
+                "WebGPU health: degraded session recorded (strike ${next.strikes}, build $build)" +
+                    " - diagnostics only; the WebGPU viewer stays in use" +
+                    (diagnostics?.let { "\n$it" } ?: ""),
             )
             // KMK <--
         }

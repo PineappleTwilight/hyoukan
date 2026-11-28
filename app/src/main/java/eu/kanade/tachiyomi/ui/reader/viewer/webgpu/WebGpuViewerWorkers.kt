@@ -112,6 +112,18 @@ internal fun WebGpuViewer.startDecodeWorker() {
                         if (e is CancellationException) throw e
                         val isLinkage = e is LinkageError || e is NoClassDefFoundError || e is UnsatisfiedLinkError
                         logcat(LogPriority.ERROR, e) { "decodeReaderPage${if (isLinkage) " linkage" else ""}: ${e.message}" }
+                        // KMK --> An upload that answers "device is lost" is the device, not this
+                        // page: the page is one victim of it. Promoting it here is what makes the
+                        // recovery ladder run instead of the reader turning every page into an
+                        // ErrorPage on a dead device (2026-11-27 PowerVR report: a dead device and
+                        // no loss recorded for the whole session).
+                        // KMK <--
+                        if (ca.mpreg.webgpuviewer.renderer.DeviceLossSignal.isLostDeviceMessage(e.message)) {
+                            ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.noteObservedDeviceLoss(
+                                "decode upload",
+                                e.message.orEmpty(),
+                            )
+                        }
                         synchronized(lock) {
                             if (pageInCache(page) && !page.isDecoded && !page.imagePage.destroyed) {
                                 val oldImagePage = page.imagePage

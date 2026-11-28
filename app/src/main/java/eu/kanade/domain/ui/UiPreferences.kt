@@ -76,6 +76,13 @@ class UiPreferences(
 
     fun relatedMangasInOverflow() = preferenceStore.getBoolean("related_mangas_in_overflow", false)
 
+    // KMK --> The scanlator-priority row is a full-width entry on the details page; a reader who
+    // opens it rarely would rather keep the page short. Same shape as the Suggestions switch above.
+    fun showScanlatorPriority() = preferenceStore.getBoolean("show_scanlator_priority", true)
+
+    fun scanlatorPriorityInOverflow() = preferenceStore.getBoolean("scanlator_priority_in_overflow", false)
+    // KMK <--
+
     fun showHomeOnRelatedMangas() = preferenceStore.getBoolean("show_home_on_related_mangas", true)
 
     fun readButtonPosition() = preferenceStore.getString("reading_button_position", FabPosition.End.toString())

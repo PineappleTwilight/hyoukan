@@ -21,5 +21,13 @@ class BackupPreferences(
         Preference.appStateKey("pref_show_restoring_progress_banner_key"),
         true,
     )
+
+    /**
+     * Enables the Kototoro/Usagi/Aniyomi import adapters and the direct export buttons (#106).
+     *
+     * Off by default: this is an opt-in interoperability layer, and the extra adapters change what
+     * the import picker accepts. Nothing here has an effect on backups the app makes for itself.
+     */
+    fun libraryInterop() = preferenceStore.getBoolean("pref_library_interop", false)
     // KMK <--
 }

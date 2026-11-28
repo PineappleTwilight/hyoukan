@@ -125,7 +125,6 @@ import eu.kanade.tachiyomi.ui.reader.viewer.novel.NovelTypographyCss
 import eu.kanade.tachiyomi.ui.reader.viewer.novel.NovelWebViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerConfig
 import eu.kanade.tachiyomi.ui.reader.viewer.pager.PagerViewer
-import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuHealth
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuViewer
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.isDualPageMode
 import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.refreshSpreads
@@ -368,17 +367,11 @@ class ReaderActivity : BaseActivity() {
 
         preferences.highQualityRenderer().changes()
             .drop(1)
-            .onEach { enabled ->
+            .onEach { _ ->
                 // KMK --> Renderer switch must rebuild even when the mode is unchanged.
-                // Turning the switch ON is also the user asking for the renderer again, so it
-                // clears WebGpuHealth's degraded-session latch: otherwise a device stuck above
-                // DISABLE_STRIKES could never use the switch that is presented as the renderer's
-                // on/off control - the reader would rebuild and fall straight back to the pager.
-                if (enabled) {
-                    runCatching {
-                        WebGpuHealth.resetStrikes(this@ReaderActivity)
-                    }
-                }
+                // There is no health latch to clear any more: the WebGPU renderer is the
+                // reader's standard viewer, so the switch only decides which viewer this
+                // session uses.
                 updateViewer(force = true)
                 // KMK <--
                 viewModel.state.value.viewerChapters?.let(::setChapters)

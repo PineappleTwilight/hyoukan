@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -102,6 +103,10 @@ fun FeedActionsDialog(
     onClickRefresh: (FeedSavedSearch) -> Unit,
     // KMK <--
     onClickDelete: (FeedSavedSearch) -> Unit,
+    // KMK --> Only the main Feed tab assigns categories today; the source-specific feed leaves
+    // this null and the row is not shown there.
+    onClickSetCategory: ((FeedSavedSearch) -> Unit)? = null,
+    // KMK <--
     modifier: Modifier = Modifier,
 ) {
     val minHeight = LocalPreferenceMinHeight.current
@@ -135,6 +140,16 @@ fun FeedActionsDialog(
                     onClickRefresh(feed)
                 },
             )
+            if (onClickSetCategory != null) {
+                TextPreferenceWidget(
+                    title = stringResource(KMR.strings.feed_action_set_category),
+                    icon = Icons.Outlined.Edit,
+                    onPreferenceClick = {
+                        onDismissRequest()
+                        onClickSetCategory(feed)
+                    },
+                )
+            }
             // KMK <--
 
             TextPreferenceWidget(
@@ -184,6 +199,7 @@ private fun FeedActionsDialogPreview() {
         title = "Feed 1",
         onDismissRequest = { },
         onClickRefresh = { },
+        onClickSetCategory = { },
         onClickDelete = { },
     )
 }

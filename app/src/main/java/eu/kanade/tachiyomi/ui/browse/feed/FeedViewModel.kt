@@ -81,6 +81,10 @@ open class FeedViewModel(
     private val reorderFeed: ReorderFeed,
     // KMK <--
     private val appDispatchers: AppDispatchers,
+    // KMK --> seeds for the local suggestion sections (#107)
+    private val getFavorites: tachiyomi.domain.manga.interactor.GetFavorites,
+    private val getHistory: tachiyomi.domain.history.interactor.GetHistory,
+    // KMK <--
 ) : StateViewModel<FeedScreenState>(FeedScreenState()) {
 
     private val _events = Channel<Event>(Int.MAX_VALUE)
@@ -90,6 +94,9 @@ open class FeedViewModel(
     var pushed: Boolean = false
 
     init {
+        // KMK -->
+        mutableState.update { it.copy(enhancementsEnabled = sourcePreferences.feedEnhancements().get()) }
+        // KMK <--
         getFeedSavedSearchGlobal.subscribe()
             .distinctUntilChanged()
             .onEach {
@@ -104,9 +111,9 @@ open class FeedViewModel(
                 }
                 mutableState.update { state ->
                     state.copy(
-                        items = items
-                            // KMK -->
-                            .toImmutableList(),
+                        // KMK -->
+                        items = items.toImmutableList(),
+                        categories = currentCategories(items).toImmutableList(),
                         // KMK <--
                     )
                 }
@@ -274,6 +281,9 @@ open class FeedViewModel(
                 LocaleHelper.getLocalizedDisplayName(source?.lang)
             },
             results,
+            // KMK -->
+            category = sourcePreferences.feedCategory(feed.id).get().takeIf { it.isNotBlank() },
+            // KMK <--
         )
     }
 
@@ -291,6 +301,10 @@ open class FeedViewModel(
                     updateFeedItem(fetchFeedItem(itemUI))
                 }
             }.awaitAll()
+            // KMK -->
+            loadEnhancementContext()
+            recomputeEnhancementLists()
+            // KMK <--
         }
     }
 
@@ -300,6 +314,7 @@ open class FeedViewModel(
             if (state.value.items?.none { it.feed.id == item.feed.id } != false) return@launchIO
             updateFeedItem(item.copy(results = null, failed = false))
             updateFeedItem(fetchFeedItem(item))
+            recomputeEnhancementLists()
         }
     }
 
@@ -307,6 +322,84 @@ open class FeedViewModel(
         state.value.items
             ?.firstOrNull { it.feed.id == feed.id }
             ?.let { retryFeed(it) }
+    }
+
+    /** Retries every row currently showing a failure, from the summary card. */
+    fun retryAllFailed() {
+        state.value.items.orEmpty()
+            .filter { it.failed }
+            .forEach { retryFeed(it) }
+    }
+
+    fun setFilters(filters: FeedEnhancements.State) {
+        mutableState.update { it.copy(filters = filters) }
+    }
+
+    fun setFeedCategory(feed: FeedSavedSearch, category: String) {
+        val trimmed = category.trim()
+        sourcePreferences.feedCategory(feed.id).set(trimmed)
+        val items = state.value.items.orEmpty().map {
+            if (it.feed.id == feed.id) {
+                it.copy(category = trimmed.takeIf { value -> value.isNotBlank() })
+            } else {
+                it
+            }
+        }
+        mutableState.update {
+            it.copy(
+                items = items.toImmutableList(),
+                categories = currentCategories(items).toImmutableList(),
+                dialog = null,
+            )
+        }
+    }
+
+    fun openCategoryDialog(feedItem: FeedItemUI) {
+        mutableState.update {
+            it.copy(
+                dialog = Dialog.SetFeedCategory(
+                    feedItem = feedItem,
+                    current = sourcePreferences.feedCategory(feedItem.feed.id).get(),
+                ),
+            )
+        }
+    }
+
+    private var librarySeed: List<DomainManga> = emptyList()
+    private var historyTitles: List<String> = emptyList()
+    private var readIds: Set<Long> = emptySet()
+
+    private fun currentCategories(items: List<FeedItemUI>): List<String> =
+        items.mapNotNull { item ->
+            sourcePreferences.feedCategory(item.feed.id).get().takeIf { it.isNotBlank() }
+        }
+            .distinct()
+            .sortedBy { it.lowercase() }
+
+    /**
+     * Reads the library and history once per refresh. The suggestion sections are local: they
+     * score the page that was already fetched, so this snapshot is the only database work the
+     * feature adds.
+     */
+    private suspend fun loadEnhancementContext() {
+        if (!state.value.enhancementsEnabled) return
+        librarySeed = runCatching { getFavorites.await() }.getOrDefault(emptyList())
+        val history = runCatching {
+            getHistory.subscribe("", null, null, null).first()
+        }.getOrDefault(emptyList())
+        readIds = history.map { it.mangaId }.toSet()
+        historyTitles = history.map { it.title }.distinct()
+    }
+
+    private fun recomputeEnhancementLists() {
+        if (!state.value.enhancementsEnabled) return
+        val candidates = FeedEnhancements.dedupe(
+            state.value.items.orEmpty().flatMap { it.results.orEmpty() },
+        )
+        val genres = FeedEnhancements.genresOf(candidates).toImmutableList()
+        val suggestions = FeedEnhancements.Suggestions.build(candidates, librarySeed, historyTitles)
+            .toImmutableList()
+        mutableState.update { it.copy(genres = genres, suggestions = suggestions, readIds = readIds) }
     }
     // KMK <--
 
@@ -349,7 +442,8 @@ open class FeedViewModel(
                     .distinctBy { it.url }
                     .let { networkToLocalManga(it) }
                     // KMK -->
-                    .filter { !hideInLibraryFeedItems.get() || !it.favorite },
+                    .filter { !hideInLibraryFeedItems.get() || !it.favorite }
+                    .let { if (sourcePreferences.feedEnhancements().get()) FeedEnhancements.dedupe(it) else it },
                 failed = false,
                 // KMK <--
             )
@@ -417,6 +511,11 @@ open class FeedViewModel(
         data class FeedActions(
             val feedItem: FeedItemUI,
         ) : Dialog()
+
+        data class SetFeedCategory(
+            val feedItem: FeedItemUI,
+            val current: String,
+        ) : Dialog()
         // KMK <--
     }
 
@@ -429,6 +528,15 @@ open class FeedViewModel(
 data class FeedScreenState(
     val dialog: FeedViewModel.Dialog? = null,
     val items: ImmutableList<FeedItemUI>? = null,
+    // KMK -->
+    val enhancementsEnabled: Boolean = false,
+    val filters: FeedEnhancements.State = FeedEnhancements.State(),
+    val categories: ImmutableList<String> = persistentListOf(),
+    val genres: ImmutableList<String> = persistentListOf(),
+    val suggestions: ImmutableList<FeedEnhancements.Suggestions.Section> = persistentListOf(),
+    /** Library entries that appear in the reading history, for the read/unread filter. */
+    val readIds: Set<Long> = emptySet(),
+    // KMK <--
 ) {
     val isLoading
         get() = items == null

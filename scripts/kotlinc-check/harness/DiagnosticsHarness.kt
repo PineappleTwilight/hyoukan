@@ -31,6 +31,7 @@ fun main() {
     check("the header is carried", report.contains("tier=MEDIUM budget=pressure=ROOMY"))
     check("a clean session says zero decodes", report.contains("decodes=0"))
     check("a clean session is not notable", !WebGpuDiagnostics.isNotable())
+    check("a clean session has no loss to explain", !WebGpuDiagnostics.render().contains("lastLoss="))
 
     // --- decode accounting ------------------------------------------------------------------
     WebGpuDiagnostics.recordDecode("decoded", 120L, "ch=1/i=0", downsampled = false)
@@ -58,6 +59,18 @@ fun main() {
     WebGpuDiagnostics.recordDeviceLoss("probe")
     check("a device loss is counted", WebGpuDiagnostics.render().contains("deviceLosses=1"))
     check("a device loss makes a session notable", WebGpuDiagnostics.isNotable())
+    // A count cannot say whether the driver reported the loss or the renderer had to discover it
+    // from a native answer - the 2026-11-27 PowerVR dump had a dead device and losses=0.
+    val lossReport = WebGpuDiagnostics.render()
+    check(
+        "the first loss records its source",
+        lossReport.contains("lastLoss=") && lossReport.contains("probe"),
+    )
+    WebGpuDiagnostics.recordDeviceLoss("second")
+    check(
+        "a later loss does not overwrite the first cause",
+        WebGpuDiagnostics.render().contains("probe") && !WebGpuDiagnostics.render().contains("second"),
+    )
 
     WebGpuDiagnostics.beginSession("tier=MEDIUM")
     WebGpuDiagnostics.recordRecovery(ok = true)

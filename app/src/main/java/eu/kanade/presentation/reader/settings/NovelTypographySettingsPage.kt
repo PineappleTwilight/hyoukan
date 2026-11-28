@@ -20,8 +20,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -98,7 +100,14 @@ internal fun NovelTypographyPage(
     // drops its first emission so the reader is not told about a value it already has. Without the
     // leading value this screen opens on the defaults and only corrects itself once a preference is
     // touched - which reads as "my settings did not save" rather than as a display bug.
-    val typography by novelPrefs.values().collectAsState(NovelTypography.DEFAULT)
+    //
+    // Remembered, not built inline: `values()` is a cold flow, and a fresh instance on every
+    // recomposition makes `collectAsState` restart its collector on every frame - every frame a
+    // slider drag produces one. A restart drops the old collector before the new one has registered
+    // its shared-preference listener, so a delta written in that window is never re-emitted, and a
+    // slider whose value never comes back cannot slide.
+    val typographyFlow = remember(novelPrefs) { novelPrefs.values() }
+    val typography by typographyFlow.collectAsState(NovelTypography.DEFAULT)
     // KMK --> The page mode is not typography (it survives every slider drag unchanged), so it is
     // collected on its own - from its own preference, through the same `collectAsState` that hands
     // the page a value the moment it opens.
@@ -124,19 +133,19 @@ internal fun NovelTypographyPage(
 
     // ---------------------------------------------------------------- legibility
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_font_size),
         value = typography.fontSizePt,
         valueRange = NovelTypography.MIN_FONT_SIZE_PT..NovelTypography.MAX_FONT_SIZE_PT,
-        valueString = "${typography.fontSizePt}pt",
+        valueString = { "${it}pt" },
         onChange = { novelPrefs.fontSize.set(it) },
     )
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_font_scale),
         value = percent(typography.fontScale),
         valueRange = percent(NovelTypography.MIN_FONT_SCALE)..percent(NovelTypography.MAX_FONT_SCALE),
-        valueString = "${percent(typography.fontScale)}%",
+        valueString = { "$it%" },
         onChange = { novelPrefs.fontScale.set(it / 100f) },
     )
 
@@ -239,35 +248,35 @@ internal fun NovelTypographyPage(
 
     // ---------------------------------------------------------------- shape
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_line_spacing),
         value = percent(typography.lineSpacing),
         valueRange = percent(NovelTypography.MIN_LINE_SPACING)..percent(NovelTypography.MAX_LINE_SPACING),
-        valueString = decimal(typography.lineSpacing),
+        valueString = { decimal(it / 100f) },
         onChange = { novelPrefs.lineSpacing.set(it / 100f) },
     )
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_paragraph_spacing),
         value = percent(typography.paragraphSpacing),
         valueRange = 0..percent(NovelTypography.MAX_PARAGRAPH_SPACING),
-        valueString = decimal(typography.paragraphSpacing),
+        valueString = { decimal(it / 100f) },
         onChange = { novelPrefs.paragraphSpacing.set(it / 100f) },
     )
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_font_spacing),
         value = percent(typography.fontSpacing),
         valueRange = percent(-0.2f)..percent(1f),
-        valueString = decimal(typography.fontSpacing),
+        valueString = { decimal(it / 100f) },
         onChange = { novelPrefs.fontSpacing.set(it / 100f) },
     )
 
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_word_spacing),
         value = percent(typography.wordSpacing),
         valueRange = percent(NovelTypography.MIN_WORD_SPACING_EM)..percent(NovelTypography.MAX_WORD_SPACING_EM),
-        valueString = decimal(typography.wordSpacing),
+        valueString = { decimal(it / 100f) },
         onChange = { novelPrefs.wordSpacing.set(it / 100f) },
     )
 
@@ -324,11 +333,11 @@ internal fun NovelTypographyPage(
 
     // KMK --> How deep that indent goes, Moon+ Reader's `indent_length`: the depth the indent rule
     // emits. Only meaningful while the indent is on, and the slider says so by sitting under it.
-    SliderItem(
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_indent_length),
         value = percent(typography.paragraphIndentLengthEm / NovelTypography.MAX_INDENT_LENGTH_EM),
         valueRange = 0..percent(1f),
-        valueString = decimal(typography.paragraphIndentLengthEm) + "em",
+        valueString = { decimal(it / 100f * NovelTypography.MAX_INDENT_LENGTH_EM) + "em" },
         onChange = { novelPrefs.paragraphIndentLength.set(it / 100f * NovelTypography.MAX_INDENT_LENGTH_EM) },
     )
     // KMK <--
@@ -493,11 +502,15 @@ internal fun NovelTypographyPage(
         label = stringResource(KMR.strings.pref_novel_auto_scroll),
         pref = novelPrefs.autoScrollEnabled,
     )
-    SliderItem(
+    // Collected, not `.get()`: a read during composition samples the store once and never
+    // recomposes, so the slider could not move and the row only showed the dragged value after the
+    // sheet was closed and reopened.
+    val autoScrollSpeedDp by novelPrefs.autoScrollSpeedDp.collectAsState()
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_auto_scroll_speed),
-        value = novelPrefs.autoScrollSpeedDp.get(),
+        value = autoScrollSpeedDp,
         valueRange = 10..240,
-        valueString = stringResource(KMR.strings.novel_auto_scroll_speed_value, novelPrefs.autoScrollSpeedDp.get()),
+        valueString = { stringResource(KMR.strings.novel_auto_scroll_speed_value, it) },
         onChange = { novelPrefs.autoScrollSpeedDp.set(it) },
     )
 
@@ -507,11 +520,12 @@ internal fun NovelTypographyPage(
         label = stringResource(KMR.strings.pref_novel_tts),
         pref = novelPrefs.ttsEnabled,
     )
-    FloatSliderItem(
+    val ttsRate by novelPrefs.ttsRate.collectAsState()
+    PrefFloatSliderItem(
         label = stringResource(KMR.strings.pref_novel_tts_rate),
-        value = novelPrefs.ttsRate.get(),
+        value = ttsRate,
         valueRange = 0.5f..3.0f,
-        valueString = stringResource(KMR.strings.novel_tts_rate_value, decimal(novelPrefs.ttsRate.get())),
+        valueString = { stringResource(KMR.strings.novel_tts_rate_value, decimal(it)) },
         onChange = { novelPrefs.ttsRate.set(it) },
     )
     // KMK <--
@@ -530,11 +544,12 @@ internal fun NovelTypographyPage(
             )
         }
     }
-    SliderItem(
+    val pageTurnSpeedMs by novelPrefs.pageTurnSpeedMs.collectAsState()
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_page_turn_speed),
-        value = novelPrefs.pageTurnSpeedMs.get(),
+        value = pageTurnSpeedMs,
         valueRange = 80..600,
-        valueString = stringResource(KMR.strings.novel_page_turn_speed_value, novelPrefs.pageTurnSpeedMs.get()),
+        valueString = { stringResource(KMR.strings.novel_page_turn_speed_value, it) },
         onChange = { novelPrefs.pageTurnSpeedMs.set(it) },
     )
 
@@ -568,11 +583,12 @@ internal fun NovelTypographyPage(
         }
     }
 
-    SliderItem(
+    val statusTextSizeSp by novelPrefs.statusTextSizeSp.collectAsState()
+    PrefSliderItem(
         label = stringResource(KMR.strings.pref_novel_status_text_size),
-        value = novelPrefs.statusTextSizeSp.get(),
+        value = statusTextSizeSp,
         valueRange = 8..20,
-        valueString = stringResource(KMR.strings.novel_status_text_size_value, novelPrefs.statusTextSizeSp.get()),
+        valueString = { stringResource(KMR.strings.novel_status_text_size_value, it) },
         onChange = { novelPrefs.statusTextSizeSp.set(it) },
     )
 
@@ -622,12 +638,71 @@ internal fun NovelTypographyPage(
  */
 @Composable
 private fun MarginSlider(label: String, value: Float, onChange: (Float) -> Unit) {
-    SliderItem(
+    PrefSliderItem(
         label = label,
         value = percent(value),
         valueRange = 0..percent(NovelTypography.MAX_MARGIN),
-        valueString = "${percent(value)}%",
+        valueString = { "$it%" },
         onChange = { onChange(it / 100f) },
+    )
+}
+
+/**
+ * An integer slider row that keeps the dragged value locally while the store catches up.
+ *
+ * Every row on this page is stored in a preference and read back through
+ * [NovelTypographyPreferences.values], so the number a row is drawn with is one shared-preference
+ * write, one listener callback and one flow emission behind the finger. A Material slider is a
+ * *controlled* component: it draws the value it is handed and never moves itself while an
+ * `onValueChange` consumer exists, so a round-trip that has not landed leaves the thumb where it
+ * was — for as long as the drag lasts, which is the "the slider does not slide until I close and
+ * reopen the sheet" report. Holding the value locally makes the row its own source of truth for the
+ * duration of the interaction; the store's emission then confirms the number instead of correcting
+ * it.
+ */
+@Composable
+private fun PrefSliderItem(
+    label: String,
+    value: Int,
+    valueRange: IntProgression,
+    onChange: (Int) -> Unit,
+    valueString: @Composable (Int) -> String,
+) {
+    var local by remember { mutableIntStateOf(value) }
+    // External changes (another row, a restore, the reader writing back) still reach the slider.
+    LaunchedEffect(value) { local = value }
+    SliderItem(
+        label = label,
+        value = local,
+        valueRange = valueRange,
+        valueString = valueString(local),
+        onChange = {
+            local = it
+            onChange(it)
+        },
+    )
+}
+
+/** [PrefSliderItem] for a value that is not a whole number of steps — today the read-aloud rate. */
+@Composable
+private fun PrefFloatSliderItem(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onChange: (Float) -> Unit,
+    valueString: @Composable (Float) -> String,
+) {
+    var local by remember { mutableFloatStateOf(value) }
+    LaunchedEffect(value) { local = value }
+    FloatSliderItem(
+        label = label,
+        value = local,
+        valueRange = valueRange,
+        valueString = valueString(local),
+        onChange = {
+            local = it
+            onChange(it)
+        },
     )
 }
 

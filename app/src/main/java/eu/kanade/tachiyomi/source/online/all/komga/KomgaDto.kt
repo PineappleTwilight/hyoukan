@@ -77,6 +77,11 @@ data class BookDto(
     val fileHash: String = "",
     val created: String? = null,
     val fileLastModified: String? = null,
+    // KMK --> The server's own formatted size and its raw byte count, for the chapter-title
+    // template's {size} / {sizeBytes} placeholders (the Keiyoushi extension reads the same pair).
+    val size: String = "",
+    val sizeBytes: Long = 0,
+    // KMK <--
     val readProgress: ReadProgressDto? = null,
     val media: MediaDto = MediaDto(),
     val metadata: BookMetadataDto = BookMetadataDto(),

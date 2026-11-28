@@ -29,7 +29,6 @@ import eu.kanade.tachiyomi.data.library.MetadataUpdateJob
 import eu.kanade.tachiyomi.extension.ExtensionAutoUpdateWorker
 import eu.kanade.tachiyomi.network.interceptor.FlareSolverr
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
-import eu.kanade.tachiyomi.ui.reader.viewer.webgpu.WebGpuHealth
 import eu.kanade.tachiyomi.util.CrashLogUtil
 import eu.kanade.tachiyomi.util.system.GLUtil
 import eu.kanade.tachiyomi.util.system.isShizukuInstalled
@@ -407,24 +406,10 @@ data object SettingsAdvancedRoute : NavKey, SearchableRoute {
                 Preference.PreferenceItem.SwitchPreference(
                     preference = basePreferences.highQualityRenderer(),
                     title = stringResource(MR.strings.pref_high_quality_renderer),
-                    // KMK --> The switch stays on while WebGpuHealth has the renderer disabled
-                    // (the setting is the user's preference, the latch is the device's verdict),
-                    // so say that here instead of leaving a switch that visibly does nothing.
-                    subtitle = if (WebGpuHealth.isDisabled(context)) {
-                        stringResource(KMR.strings.pref_high_quality_renderer_unavailable)
-                    } else {
-                        stringResource(MR.strings.pref_high_quality_renderer_summary)
-                    },
-                    // Turning it on here is the same "I want the renderer again" signal the reader
-                    // observes, so it clears the degraded-session latch from this screen too -
-                    // otherwise a device above DISABLE_STRIKES could flip the switch and still get
-                    // the legacy viewer on the next chapter.
-                    onValueChanged = { enabled ->
-                        if (enabled) {
-                            runCatching { WebGpuHealth.resetStrikes(context) }
-                        }
-                        true
-                    },
+                    // KMK --> The WebGPU renderer is the reader's standard viewer; it is never
+                    // disabled on the device's behalf. The switch is therefore just the user's
+                    // preference, with no "temporarily unavailable" state to explain.
+                    subtitle = stringResource(MR.strings.pref_high_quality_renderer_summary),
                     // KMK <--
                 ),
                 // KMK -->

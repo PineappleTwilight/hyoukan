@@ -73,6 +73,16 @@ class SourcePreferences(
 
     // KMK -->
     fun hideInLibraryFeedItems() = preferenceStore.getBoolean("feed_hide_in_library_items", false)
+
+    /**
+     * Enables the Feed categories, quick filters, failure summary, deduplication and
+     * local suggestion sections (#107). Off by default; the Feed renders exactly as before while
+     * this is off.
+     */
+    fun feedEnhancements() = preferenceStore.getBoolean("feed_enhancements", false)
+
+    /** The reader-assigned category of one feed row ("" = uncategorised). */
+    fun feedCategory(feedId: Long) = preferenceStore.getString("feed_category_$feedId", "")
     // KMK <--
 
     @Deprecated("Use ExtensionRepoRepository instead", replaceWith = ReplaceWith("ExtensionRepoRepository.getAll()"))

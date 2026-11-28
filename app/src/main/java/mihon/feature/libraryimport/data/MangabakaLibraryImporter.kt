@@ -37,8 +37,9 @@ class MangabakaLibraryImporter : LibraryImportAdapter {
         explicitNulls = false
     }
 
-    override fun parse(content: String): List<ImportEntry> {
-        val root = json.parseToJsonElement(content)
+    override fun parse(content: ByteArray): List<ImportEntry> {
+        val text = content.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+        val root = json.parseToJsonElement(text)
         val items = when (root) {
             is JsonArray -> json.decodeFromJsonElement<List<MangabakaExportItem>>(root)
             is JsonObject -> {

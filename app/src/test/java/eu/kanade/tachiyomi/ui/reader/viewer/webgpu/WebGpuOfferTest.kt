@@ -8,12 +8,12 @@ import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
 
 /**
- * The provider's gate order - the single decision behind "the reader falls back to the legacy
- * viewer on every device".
+ * The provider's gate order - the single decision behind which viewer a reader gets.
  *
- * Precedence is the part that matters: the user's switch outranks the device's health verdict, and
- * the health verdict outranks the renderer probe because probing initialises the GPU device. A
- * reordering that probed first would create a device for a reader that was never going to use it.
+ * There are exactly two gates now, and their order matters: the user's switch outranks the
+ * renderer probe, because probing initialises the GPU device. **There is deliberately no health
+ * gate**: the WebGPU renderer is the reader's standard viewer, and a device's past sessions can
+ * never demote it to the legacy pager. That is asserted in `WebGpuFallbackScenarioTest`.
  */
 // The probe flag is instance state shared by the helper below, so methods of this class run on one
 // thread; the policy itself is pure and needs no isolation from other classes.
@@ -24,15 +24,14 @@ class WebGpuOfferTest {
 
     private fun offer(
         wantsHighQuality: Boolean = true,
-        strikes: Int = 0,
         available: Boolean = true,
-    ) = webGpuOfferFor(wantsHighQuality, strikes) {
+    ) = webGpuOfferFor(wantsHighQuality) {
         probed = true
         available
     }
 
     @Test
-    fun `a wanted, healthy, available renderer is offered`() {
+    fun `a wanted, available renderer is offered`() {
         probed = false
         offer() shouldBe WebGpuOffer.OFFERED
         probed.shouldBeTrue()
@@ -47,20 +46,6 @@ class WebGpuOfferTest {
     }
 
     @Test
-    fun `a health-disabled device declines without probing the renderer`() {
-        probed = false
-        offer(strikes = WebGpuHealthPolicy.DISABLE_STRIKES) shouldBe WebGpuOffer.HEALTH_DISABLED
-        probed.shouldBeFalse()
-    }
-
-    @Test
-    fun `one strike below the threshold still reaches the probe`() {
-        probed = false
-        offer(strikes = WebGpuHealthPolicy.DISABLE_STRIKES - 1) shouldBe WebGpuOffer.OFFERED
-        probed.shouldBeTrue()
-    }
-
-    @Test
     fun `an unavailable renderer is the last gate`() {
         probed = false
         offer(available = false) shouldBe WebGpuOffer.RENDERER_UNAVAILABLE
@@ -68,19 +53,15 @@ class WebGpuOfferTest {
     }
 
     @Test
-    fun `the switch outranks a disabled health record`() {
-        // Turning the renderer off must not depend on the device's history.
-        offer(wantsHighQuality = false, strikes = 99, available = false) shouldBe WebGpuOffer.SWITCH_OFF
+    fun `the switch outranks an unavailable renderer`() {
+        offer(wantsHighQuality = false, available = false) shouldBe WebGpuOffer.SWITCH_OFF
     }
 
     @Test
-    fun `the health verdict outranks an unavailable renderer`() {
-        // Both are declines; the log must name the latch first, because that is the actionable one.
-        offer(strikes = 2, available = false) shouldBe WebGpuOffer.HEALTH_DISABLED
-    }
-
-    @Test
-    fun `a negative strike count is treated as none`() {
-        offer(strikes = -1) shouldBe WebGpuOffer.OFFERED
+    fun `the offer has no health state to consult`() {
+        // The signature is the assertion: `webGpuOfferFor` takes the switch and the probe only.
+        // A re-added strike count would have to change this file, `WebGpuOfferHarness` and the
+        // provider, which is the point of pinning it.
+        offer() shouldBe WebGpuOffer.OFFERED
     }
 }

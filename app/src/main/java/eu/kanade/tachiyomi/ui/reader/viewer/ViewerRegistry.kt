@@ -139,18 +139,20 @@ object ViewerRegistry {
 }
 
 /**
- * Offers the WebGPU viewer, in this order, and stops at the first reason:
+ * Offers the WebGPU viewer. There are exactly two gates:
  *
  * 1. the user's high-quality switch is off;
- * 2. this build has recorded [WebGpuHealth.DISABLE_STRIKES] degraded sessions on this device;
- * 3. the renderer cannot be initialised or has lost its device;
- * 4. constructing the viewer threw.
+ * 2. WebGPU cannot run on this device at all - it failed to initialise, or a lost device could
+ *    not be rebuilt (the reason `WebGpuRenderer.unavailableReason` names).
  *
- * Reasons 2-4 are logged on the `ViewerRegistry` line **and**, for a user with only a phone, to the
- * in-app log - a reader that silently opens on the legacy pager with the WebGPU settings still
- * visible is indistinguishable from a bug, which is exactly how it was reported. Each reason has
- * its own sentence so a dump names it without needing the reader's source. Reason 1 is silent on
- * purpose: it is the switch doing its job, not a failure.
+ * **There is no health gate and no per-device fallback.** The WebGPU renderer is the reader's
+ * standard viewer; a session that loses its GPU device is recovered, not remembered against the
+ * device. A previous session's dead device is rebuilt right here before the decision, because this
+ * is the one place that can do it before a viewer exists.
+ *
+ * Reason 2 is logged on the `ViewerRegistry` line **and**, for a user with only a phone, to the
+ * in-app log - a reader that cannot open the renderer is indistinguishable from a bug, so the
+ * sentence says why. Reason 1 is silent on purpose: it is the switch doing its job.
  */
 private object WebGpuProvider : ViewerProvider {
     override val order: Int = 0
@@ -158,47 +160,52 @@ private object WebGpuProvider : ViewerProvider {
 
     override fun create(mode: ReadingMode, activity: ReaderActivity, seedColor: Int?): Viewer? {
         // KMK --> The renderer is offered wherever WebGPU itself is available; a device is no
-        // longer refused for its RAM. A device without the headroom fails at runtime, and
-        // WebGpuHealth turns repeat dead sessions into the legacy viewer instead of the same
-        // black screen every launch. The user's high-quality toggle is the only gate here.
+        // longer refused for its RAM, and it is no longer refused for a bad history. The user's
+        // high-quality toggle is the only preference gate.
         // KMK <--
         val basePreferences = globalAppGraph.basePreferences
         val wantsHighQuality = basePreferences.highQualityRenderer().get()
-        // KMK --> A session that gave up on its GPU device writes a marker that outlives the
-        // process (a native SIGILL never reaches `destroy()`). Consume it before reading the
-        // strike count, so a device that crashes every launch still accumulates its strikes and
-        // falls back to the legacy viewer instead of opening the same black screen forever.
+        // KMK --> Diagnostic only: a session that gave up on its GPU device (or died natively
+        // before it could close) leaves a marker; consuming it here writes the previous session's
+        // unclean end to the in-app log. It deliberately does not change the decision below.
         WebGpuHealth.commitUncleanSession(activity)
         // KMK <--
-        // KMK --> The gate itself is [webGpuOfferFor], a pure function: the order (switch, health,
-        // renderer probe) is load-bearing and asserted offline. The probe is a lambda because it
-        // initialises the GPU device, so it must not run for a reader that was never going to use
-        // it. Sessions whose GPU device keeps dying without recovery record strikes
-        // (WebGpuHealth); once they stack up, stop offering the renderer, so the reader opens
-        // instead of repeating the same black screen every launch. The count is scoped to the
-        // build that recorded it, so a fixed build is not held to an older one's verdict.
-        val strikes = if (wantsHighQuality) WebGpuHealth.strikeCount(activity) else 0
-        val offer = webGpuOfferFor(wantsHighQuality, strikes) {
-            try {
-                ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.isAvailable
-            } catch (_: Throwable) {
-                false
+        // KMK --> The probe is a lambda because it initialises the GPU device, and it also rebuilds
+        // a dead device: without this, a device that was lost while the previous reader was closing
+        // would decline this reader for the rest of the process instead of starting fresh.
+        val offer = webGpuOfferFor(wantsHighQuality) {
+            if (runCatching { ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.isAvailable }.getOrDefault(false)) {
+                true
+            } else {
+                // A *latched init failure* is a device that cannot run WebGPU at all; retrying it
+                // on every reader open would trade one fast decline for an adapter request each
+                // time. Only a renderer that initialised and then lost its device is rebuilt.
+                val canRebuild = runCatching {
+                    ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.initError == null
+                }.getOrDefault(false)
+                canRebuild &&
+                    runCatching {
+                        kotlinx.coroutines.runBlocking {
+                            // The device is process-wide — the companion owns the instance, the
+                            // adapter and the device — but `reinit` is an instance method, so a
+                            // throwaway renderer is the handle this pre-viewer probe uses.
+                            // `recreateDeviceLocked` touches only that shared state and the
+                            // process-wide pipeline caches, never the handle's own surface.
+                            ca.mpreg.webgpuviewer.renderer.WebGpuRenderer().reinit()
+                        }
+                    }.getOrDefault(false) &&
+                    runCatching {
+                        ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.isAvailable
+                    }.getOrDefault(false)
             }
         }
         when (offer) {
             WebGpuOffer.SWITCH_OFF -> return null
-            WebGpuOffer.HEALTH_DISABLED -> {
-                val reason = "WebGPU viewer declined: this build recorded $strikes/" +
-                    "${WebGpuHealth.DISABLE_STRIKES} degraded sessions on this device - " +
-                    "using the legacy viewer (About easter egg or toggling the renderer off/on resets it)"
-                logcat(LogPriority.INFO) { reason }
-                xLogE(reason)
-                return null
-            }
 
             WebGpuOffer.RENDERER_UNAVAILABLE -> {
-                // `isAvailable` is false for a latched init failure or a lost device;
-                // `unavailableReason` says which, and it is the only place that sentence exists.
+                // `isAvailable` is false for a latched init failure or a device that could not be
+                // rebuilt; `unavailableReason` says which, and it is the only place that sentence
+                // exists. This is the only decline: there is no other renderer for the reader.
                 val reason = "WebGPU viewer declined: renderer unavailable - " +
                     runCatching { ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.unavailableReason }
                         .getOrNull().orEmpty().ifEmpty { "unknown reason" }

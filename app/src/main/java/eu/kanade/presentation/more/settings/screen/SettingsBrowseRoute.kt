@@ -76,6 +76,21 @@ data object SettingsBrowseRoute : NavKey, SearchableRoute {
                         title = stringResource(KMR.strings.put_related_mangas_in_overflow),
                         subtitle = stringResource(KMR.strings.put_related_mangas_in_overflow_summary),
                     ),
+                    // KMK --> The scanlator-priority entry, beside the Suggestions switch it is
+                    // modelled on: both move a details-page entry into the toolbar overflow, and
+                    // the first one also hides it entirely.
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = uiPreferences.showScanlatorPriority(),
+                        title = stringResource(KMR.strings.pref_show_scanlator_priority),
+                        subtitle = stringResource(KMR.strings.pref_show_scanlator_priority_summary),
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = uiPreferences.scanlatorPriorityInOverflow(),
+                        dependsOn = PreferenceDependency(uiPreferences.showScanlatorPriority()),
+                        title = stringResource(KMR.strings.put_scanlator_priority_in_overflow),
+                        subtitle = stringResource(KMR.strings.put_scanlator_priority_in_overflow_summary),
+                    ),
+                    // KMK <--
                     Preference.PreferenceItem.SwitchPreference(
                         preference = uiPreferences.showHomeOnRelatedMangas(),
                         title = stringResource(KMR.strings.pref_show_home_on_related_mangas),
@@ -132,6 +147,11 @@ data object SettingsBrowseRoute : NavKey, SearchableRoute {
                     Preference.PreferenceItem.SwitchPreference(
                         preference = sourcePreferences.hideInLibraryFeedItems(),
                         title = stringResource(MR.strings.pref_hide_in_library_items),
+                    ),
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = sourcePreferences.feedEnhancements(),
+                        title = stringResource(KMR.strings.feed_enhancements),
+                        subtitle = stringResource(KMR.strings.feed_enhancements_summary),
                     ),
                     // KMK <--
                 ),

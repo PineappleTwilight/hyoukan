@@ -81,6 +81,20 @@ time, so flipping it needs a restart.
 book reader claims the chapter, everything else goes to image pages. The host's explicit-user-first
 precedence (`PageLoaderFactory.isBookEntry`) sits above both.
 
+**Ported extension options (KMK).** The source's settings screen carries the Keiyoushi Komga
+extension's options under the extension's own keys — `KomgaSettingKeys` in
+`KomgaPreferences.kt` — because delegation substitutes this source under the extension's id and
+reads the same `source_<id>` file: a value set in the extension applies here unchanged.
+`Chapter name template` (`KomgaChapterNameTemplate`, pure) renders `{title}`, `{seriesTitle}`,
+`{number}`, `{createdDate}`, `{releaseDate}`, `{size}`, `{sizeBytes}` with the extension's grammar
+(`$` escapes a brace; an unknown placeholder is refused by the dialog). Its default is this
+source's historical `{number} - {title}`, **not** the extension's `{number} - {title} ({size})`,
+so an update does not append a file size to every existing chapter name; `{title}` alone is the
+"remove the number prefix" setting. `Scanlator seperator` (the extension's spelling) joins
+translator credits, `,` as `", "`. `Default libraries` narrows `getSeriesPage` with repeated
+`library_id` parameters; its choices come from the `library_list` cache, filled by the screen's
+"Reload libraries" row (or once on first open), never by a fetch during screen construction.
+
 ## Key directories
 
 | Path | Purpose |

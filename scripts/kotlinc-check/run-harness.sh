@@ -237,6 +237,12 @@ for MAIN in "$HARNESS_DIR"/*Harness.kt; do
         SwapchainRecoveryHarness)
             # The surface-recovery ladder's order and boundaries. Pure, so the real table is linked.
             SOURCES+=("$REPO_ROOT/external/webgpuviewer-houri/library/src/main/java/ca/mpreg/webgpuviewer/renderer/SwapchainRecoveryPolicy.kt") ;;
+        DeviceLossSignalHarness)
+            # What a native failure message means. The 2026-11-27 PowerVR session lost its device
+            # with no callback, and the readback's "[Device] is lost." was the only proof - so the
+            # discriminator between a dead device and an ordinary map/buffer failure decides
+            # whether the reader recovers or keeps drawing black. Pure, linked from the library.
+            SOURCES+=("$REPO_ROOT/external/webgpuviewer-houri/library/src/main/java/ca/mpreg/webgpuviewer/renderer/DeviceLossSignal.kt") ;;
         DiagnosticsHarness)
             # The recorder's own facades are stubbed, so the run writes nothing.
             SOURCES+=("$WEBGPU_DIR/WebGpuDiagnostics.kt")

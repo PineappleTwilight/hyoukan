@@ -22,11 +22,15 @@ interface LibraryImportAdapter {
     /**
      * Parses the raw contents of an export file.
      *
+     * Bytes rather than text: the Kotatsu-family archives are ZIP files and Aniyomi's backup is
+     * gzip-compressed protobuf, so a text reader would not even be able to hand those adapters
+     * their input. Text exports decode UTF-8 themselves.
+     *
      * Implementations must be tolerant of the shapes their service has shipped over time, and
      * must throw only when the content is not that service's export at all - an empty but valid
      * export is a session with no entries, not an error.
      */
-    fun parse(content: String): List<ImportEntry>
+    fun parse(content: ByteArray): List<ImportEntry>
 
     /**
      * Whether a file with this name plausibly belongs to this adapter, used to pick a default

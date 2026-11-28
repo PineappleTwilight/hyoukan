@@ -58,6 +58,8 @@ fun MangaToolbar(
     onClickEditInfo: (() -> Unit)?,
     // KMK -->
     onClickRelatedMangas: (() -> Unit)?,
+    // KMK --> The entry-page scanlator-priority row, moved into the overflow by its preference.
+    onClickScanlatorPriority: (() -> Unit)?,
     onClickSourceSettings: (() -> Unit)?,
     onClearManga: () -> Unit,
     onOpenMangaFolder: (() -> Unit)?,
@@ -255,6 +257,14 @@ fun MangaToolbar(
                             AppBar.OverflowAction(
                                 title = stringResource(KMR.strings.pref_source_related_mangas),
                                 onClick = onClickRelatedMangas,
+                            ),
+                        )
+                    }
+                    if (onClickScanlatorPriority != null) {
+                        add(
+                            AppBar.OverflowAction(
+                                title = stringResource(KMR.strings.scanlator_priority),
+                                onClick = onClickScanlatorPriority,
                             ),
                         )
                     }

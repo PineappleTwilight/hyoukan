@@ -5,14 +5,20 @@ import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.mockk.every
+import io.mockk.mockk
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
+import tachiyomi.domain.backup.service.BackupPreferences
 
 @Execution(ExecutionMode.CONCURRENT)
 class MangabakaLibraryImporterTest {
 
     private val importer = MangabakaLibraryImporter()
+
+    /** The importer now reads bytes so the same interface can carry ZIP archives (#106). */
+    private fun MangabakaLibraryImporter.parse(text: String) = parse(text.toByteArray())
 
     @Test
     fun `reads the library API shape with entry and series`() {
@@ -215,10 +221,33 @@ class MangabakaLibraryImporterTest {
 
     @Test
     fun `the adapter is registered and reachable by id`() {
-        val adapters = LibraryImportAdapters(importer)
+        val adapters = LibraryImportAdapters(
+            mangabaka = importer,
+            kototoro = KototoroLibraryImporter(),
+            usagi = UsagiLibraryImporter(),
+            aniyomi = AniyomiLibraryImporter(),
+            backupPreferences = mockk<BackupPreferences> {
+                every { libraryInterop().get() } returns false
+            },
+        )
 
         adapters.byId(MangabakaLibraryImporter.ID).shouldNotBeNull()
         adapters.all.size shouldBe 1
+    }
+
+    @Test
+    fun `interop adapters only appear while the interoperability switch is on`() {
+        val preference = mockk<BackupPreferences>()
+        every { preference.libraryInterop().get() } returns true
+        val adapters = LibraryImportAdapters(
+            mangabaka = importer,
+            kototoro = KototoroLibraryImporter(),
+            usagi = UsagiLibraryImporter(),
+            aniyomi = AniyomiLibraryImporter(),
+            backupPreferences = preference,
+        )
+
+        adapters.all.map { it.id } shouldBe listOf("mangabaka", "kototoro", "usagi", "aniyomi")
     }
 
     private companion object {

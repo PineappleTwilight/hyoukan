@@ -32,6 +32,7 @@ import androidx.navigation3.runtime.result.LocalResultEventBus
 import eu.kanade.presentation.browse.AnizenMultiFeedScreen
 import eu.kanade.presentation.browse.FeedAddDialog
 import eu.kanade.presentation.browse.FeedAddSearchDialog
+import eu.kanade.presentation.browse.FeedCategoryDialog
 import eu.kanade.presentation.browse.FeedOrderScreen
 import eu.kanade.presentation.browse.FeedScreen
 import eu.kanade.presentation.browse.components.BulkFavoriteDialogs
@@ -298,6 +299,16 @@ fun feedTab(
                                 // KMK <--
                                 onRefresh = screenModel::init,
                                 getMangaState = { manga -> screenModel.getManga(initialManga = manga) },
+                                // KMK -->
+                                enhancementsEnabled = state.enhancementsEnabled,
+                                filters = state.filters,
+                                categories = state.categories,
+                                genres = state.genres,
+                                suggestions = state.suggestions,
+                                readIds = state.readIds,
+                                onFiltersChange = screenModel::setFilters,
+                                onRetryAll = screenModel::retryAllFailed,
+                                // KMK <--
                             )
                         }
                     }
@@ -347,6 +358,14 @@ fun feedTab(
                             onDismissRequest = onDismissRequest,
                             onClickRefresh = screenModel::refreshFeed,
                             onClickDelete = { screenModel.openDeleteDialog(it) },
+                            onClickSetCategory = { screenModel.openCategoryDialog(dialog.feedItem) },
+                        )
+                    }
+                    is FeedViewModel.Dialog.SetFeedCategory -> {
+                        FeedCategoryDialog(
+                            initialValue = dialog.current,
+                            onDismissRequest = onDismissRequest,
+                            onSave = { category -> screenModel.setFeedCategory(dialog.feedItem.feed, category) },
                         )
                     }
                     // KMK <--

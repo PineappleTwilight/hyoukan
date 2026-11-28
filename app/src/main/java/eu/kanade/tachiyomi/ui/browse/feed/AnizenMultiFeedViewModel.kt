@@ -237,13 +237,16 @@ open class AnizenMultiFeedViewModel(
         }
 
         val hideInLibrary = sourcePreferences.hideInLibraryFeedItems().get()
+        val enhance = sourcePreferences.feedEnhancements().get()
         val result = withIOContext {
+            val local = page
+                .mapNotNull { itemUI.source?.let { source -> it.toDomainManga(source.id) } }
+                .distinctBy { it.url }
+                .let { networkToLocalManga(it) }
+                .filter { !hideInLibrary || !it.favorite }
             itemUI.copy(
-                results = page
-                    .mapNotNull { itemUI.source?.let { source -> it.toDomainManga(source.id) } }
-                    .distinctBy { it.url }
-                    .let { networkToLocalManga(it) }
-                    .filter { !hideInLibrary || !it.favorite },
+                // #107: the same series surfacing in two feeds keeps the newer copy.
+                results = if (enhance) FeedEnhancements.dedupe(local) else local,
                 failed = false,
             )
         }

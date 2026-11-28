@@ -72,6 +72,8 @@ import tachiyomi.i18n.kmk.KMR
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -289,12 +291,10 @@ internal class ImportSessionsViewModel(
         viewModelScope.launchIO {
             val result = runCatching {
                 val fileName = displayName(uri) ?: uri.lastPathSegment
-                val content = withIOContext {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                } ?: error("Could not open the picked file")
+                val content = withIOContext { readImportBytes(uri) }
+                    ?: error("Could not open the picked file")
 
-                val adapter = adapters.byFileName(fileName)
-                val entries = adapter.parse(content)
+                val (adapter, entries) = adapters.parse(fileName, content)
                 if (entries.isEmpty()) throw EmptyExportException()
 
                 createOrReuseSession(adapter.id, fileName, entries)
@@ -312,6 +312,31 @@ internal class ImportSessionsViewModel(
                     },
                 )
             }
+        }
+    }
+
+    /**
+     * Reads the picked file into memory with a hard cap.
+     *
+     * A library export is a few megabytes; anything past the cap is a wrong file or a hostile
+     * one, and handing it to a parser would only move the failure somewhere less legible.
+     */
+    private fun readImportBytes(uri: Uri): ByteArray? {
+        val input = context.contentResolver.openInputStream(uri) ?: return null
+        return input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > MAX_IMPORT_BYTES) {
+                    throw IOException("Import file is larger than $MAX_IMPORT_BYTES bytes")
+                }
+                out.write(buffer, 0, read)
+            }
+            out.toByteArray()
         }
     }
 
@@ -364,6 +389,10 @@ internal class ImportSessionsViewModel(
 
     fun clearFailure() {
         mutableState.update { it.copy(failure = null) }
+    }
+
+    private companion object {
+        const val MAX_IMPORT_BYTES = 256L * 1024 * 1024
     }
 
     data class State(

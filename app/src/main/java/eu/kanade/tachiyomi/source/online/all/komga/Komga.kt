@@ -1,7 +1,16 @@
 package eu.kanade.tachiyomi.source.online.all.komga
 
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.widget.Button
+import android.widget.Toast
+import androidx.preference.EditTextPreference
+import androidx.preference.MultiSelectListPreference
+import androidx.preference.Preference
 import androidx.preference.PreferenceScreen
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.BuildConfig
@@ -30,6 +39,11 @@ import eu.kanade.tachiyomi.source.text.TextSearchHit
 import eu.kanade.tachiyomi.source.text.TextSearchSource
 import eu.kanade.tachiyomi.source.text.TextTocSource
 import eu.kanade.tachiyomi.source.text.TocEntry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import mihon.app.di.globalAppGraph
 import okhttp3.Headers
@@ -102,22 +116,30 @@ class Komga(
 
     // ------------------------------------------------------------ browse
 
-    private fun pageUrl(path: String, params: Map<String, String>): String =
-        baseUrlValue + path + (if (params.isEmpty()) "" else "?" + params.entries.joinToString("&") { (k, v) -> "${urlEncode(k)}=${urlEncode(v)}" })
+    private fun pageUrl(path: String, params: List<Pair<String, String>>): String {
+        val query = params.joinToString("&") { (k, v) -> "${urlEncode(k)}=${urlEncode(v)}" }
+        return baseUrlValue + path + if (query.isEmpty()) "" else "?$query"
+    }
 
     private fun urlEncode(s: String): String =
         java.net.URLEncoder.encode(s, Charsets.UTF_8).replace("+", "%20")
 
     private suspend fun getSeriesPage(page: Int, query: String, sort: String): MangasPage {
         check(!baseUrlValue.isBlank()) { "Set the server address in this source's settings" }
+        // KMK --> The Keiyoushi extension's "Default libraries" setting, applied the same way it
+        // applies its search conditions: repeated `library_id` parameters narrow the list, and an
+        // empty selection means every library (the unset state).
+        val libraries = prefs().defaultLibraries()
+        // KMK <--
         val url = pageUrl(
             "/api/v1/series",
-            buildMap {
-                put("page", (page - 1).coerceAtLeast(0).toString())
-                put("deleted", "false")
-                put("size", "25")
-                if (query.isNotBlank()) put("search", query)
-                put("sort", sort)
+            buildList {
+                add("page" to (page - 1).coerceAtLeast(0).toString())
+                add("deleted" to "false")
+                add("size" to "25")
+                if (query.isNotBlank()) add("search" to query)
+                add("sort" to sort)
+                libraries.forEach { add("library_id" to it) }
             },
         )
         val response = client.newCall(GET(url, headers)).awaitSuccess()
@@ -166,13 +188,13 @@ class Komga(
             .sortedByDescending { it.metadata.numberSort }
             .mapIndexed { index, book ->
                 SChapter.create().apply {
-                    name = chapterName(book)
+                    name = chapterName(book, manga.title)
                     chapter_number = book.metadata.numberSort.takeIf { it > 0f } ?: (index + 1).toFloat()
                     url = "$baseUrlValue/api/v1/books/${book.id}"
                     date_upload = parseDate(book.created ?: book.fileLastModified)
                     scanlator = book.metadata.authors
                         .filter { it.role == "translator" }
-                        .joinToString(", ") { it.name }
+                        .joinToString(scanlatorJoin) { it.name }
                         .ifBlank { null }
                 }
             }
@@ -294,12 +316,38 @@ class Komga(
     private fun runBlockingFirst(block: suspend () -> Boolean): Boolean =
         kotlinx.coroutines.runBlocking { block() }
 
-    private fun chapterName(book: BookDto): String {
-        val title = book.metadata.title.ifBlank { book.name }
-        return if (title.isNotBlank()) {
-            "${numberOf(book)} - $title"
-        } else {
-            book.name.ifBlank { "Book ${numberOf(book)}" }
+    // KMK --> The Keiyoushi extension's scanlator separator: one character, `","` joined as
+    // `", "` so the default reproduces the join this source used before the setting existed, and
+    // any other choice joins as `" $sep "` (the extension's rule).
+    private val scanlatorJoin: String
+        get() = prefs().scanlatorSeparator().let { separator ->
+            if (separator == ",") ", " else " $separator "
+        }
+
+    /**
+     * The chapter's name, rendered from the Keiyoushi extension's chapter-title template.
+     *
+     * The template is what lets a reader drop the number prefix — `{title}` alone — which the
+     * source used to prepend unconditionally. A template that renders to nothing falls back to
+     * the book's file name, because a blank chapter name is trimmed away by the app; one that
+     * renders to exactly the series title is prefixed with a zero-width space for the same
+     * reason (a row whose name equals the title shows as empty). Both rules are the extension's.
+     */
+    private fun chapterName(book: BookDto, mangaTitle: String): String {
+        val values = mapOf(
+            "title" to book.metadata.title.ifBlank { book.name },
+            "seriesTitle" to book.seriesTitle,
+            "number" to numberOf(book),
+            "createdDate" to book.created.orEmpty(),
+            "releaseDate" to book.metadata.releaseDate.orEmpty(),
+            "size" to book.size,
+            "sizeBytes" to book.sizeBytes.toString(),
+        )
+        val rendered = KomgaChapterNameTemplate.render(prefs().chapterNameTemplate(), values).trim()
+        return when {
+            rendered.isBlank() -> book.name.ifBlank { "Book ${numberOf(book)}" }
+            rendered == mangaTitle -> "\u200B$rendered"
+            else -> rendered
         }
     }
 
@@ -388,10 +436,194 @@ class Komga(
             dialogMessage = "Optional. If set, used instead of username and password.",
         )
         editText(KomgaSettingKeys.DISPLAY_NAME, "Source display name")
+
+        // KMK --> The Keiyoushi extension's remaining options: chapter-title format, scanlator
+        // separator, and the default-library selection the extension files under the same keys.
+        chapterNameTemplatePreference(screen)
+        scanlatorSeparatorPreference(screen)
+        defaultLibrariesPreferences(screen)
+        // KMK <--
+    }
+
+    // ------------------------------------------------------------ KMK: ported options
+
+    private val settingsScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun cachedLibraries(): List<LibraryDto> = runCatching {
+        val text = prefs().getString(KomgaSettingKeys.LIBRARY_LIST, "[]")!!
+        globalAppGraph.json.decodeFromString(ListSerializer(LibraryDto.serializer()), text)
+    }.getOrDefault(emptyList())
+
+    /**
+     * The chapter-title format, as the Keiyoushi extension offers it.
+     *
+     * The OK button is gated on [KomgaChapterNameTemplate.isRenderable]: a typo in a placeholder
+     * would otherwise be stamped into every chapter name for ever, and the dialog is the only
+     * place that can catch it. A blank value is accepted and means "the default format".
+     */
+    private fun chapterNameTemplatePreference(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = KomgaSettingKeys.CHAPTER_NAME_TEMPLATE
+            title = "Chapter title format"
+            dialogTitle = title
+            setDefaultValue(KomgaChapterNameTemplate.DEFAULT)
+            dialogMessage = "Placeholders: {title}, {seriesTitle}, {number}, {createdDate}, " +
+                "{releaseDate}, {size}, {sizeBytes}. Drop {number} to remove the number prefix. " +
+                "Type \$ before a brace to print it literally."
+            summaryProvider = Preference.SummaryProvider<EditTextPreference> { pref ->
+                pref.text?.takeIf { it.isNotBlank() } ?: KomgaChapterNameTemplate.DEFAULT
+            }
+            setOnBindEditTextListener { box ->
+                box.inputType = InputType.TYPE_CLASS_TEXT
+                box.addTextChangedListener(
+                    object : TextWatcher {
+                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                        override fun afterTextChanged(editable: Editable?) {
+                            val text = editable?.toString().orEmpty()
+                            val valid = text.isBlank() || KomgaChapterNameTemplate.isRenderable(text)
+                            box.error = if (valid) null else "Unknown placeholder in the format"
+                            box.rootView.findViewById<Button>(android.R.id.button1)?.isEnabled = valid
+                        }
+                    },
+                )
+            }
+            setOnPreferenceChangeListener { _, value ->
+                val text = value as? String ?: return@setOnPreferenceChangeListener false
+                val valid = text.isBlank() || KomgaChapterNameTemplate.isRenderable(text)
+                if (!valid) Toast.makeText(context, "Unknown placeholder in the format", Toast.LENGTH_SHORT).show()
+                valid
+            }
+            screen.addPreference(this)
+        }
+    }
+
+    /** The character between multiple translator names; one character, blank means the default. */
+    private fun scanlatorSeparatorPreference(screen: PreferenceScreen) {
+        EditTextPreference(screen.context).apply {
+            key = KomgaSettingKeys.SCANLATOR_SEPARATOR
+            title = "Scanlator name separator"
+            dialogTitle = title
+            setDefaultValue(",")
+            dialogMessage = "One character, placed between multiple translator names."
+            summaryProvider = Preference.SummaryProvider<EditTextPreference> { pref ->
+                pref.text?.takeIf { it.isNotBlank() } ?: ","
+            }
+            setOnPreferenceChangeListener { _, value ->
+                val text = value as? String ?: return@setOnPreferenceChangeListener false
+                val valid = text.isBlank() || text.length == 1
+                if (!valid) Toast.makeText(context, "Only one character", Toast.LENGTH_SHORT).show()
+                valid
+            }
+            screen.addPreference(this)
+        }
+    }
+
+    /**
+     * The library selection applied when browsing, plus the row that loads the choices.
+     *
+     * A settings screen cannot await a network call while it builds, so the library list is a
+     * cache ([KomgaSettingKeys.LIBRARY_LIST]) filled by "Reload libraries" — or once on first open
+     * when the server address is already configured. The extension fetches it behind every
+     * credential change; an explicit row is the same result without the screen needing to know
+     * when a save finished, and without the "did it save before it fetched?" ordering trap.
+     */
+    private fun defaultLibrariesPreferences(screen: PreferenceScreen) {
+        val libraries = cachedLibraries()
+        val selection = MultiSelectListPreference(screen.context).apply {
+            key = KomgaSettingKeys.DEFAULT_LIBRARIES
+            title = "Default libraries"
+            setDefaultValue(emptySet<String>())
+            entries = libraries.map { it.name }.toTypedArray()
+            entryValues = libraries.map { it.id }.toTypedArray()
+            isEnabled = libraries.isNotEmpty()
+            summary = librarySummary(libraries, prefs().defaultLibraries())
+        }
+        screen.addPreference(selection)
+
+        val reload = Preference(screen.context).apply {
+            key = RELOAD_LIBRARIES_KEY
+            title = "Reload libraries"
+            summary = "Fetch this server's libraries for the selection above"
+        }
+        screen.addPreference(reload)
+
+        fun load() {
+            if (baseUrlValue.isBlank()) {
+                Toast.makeText(screen.context, "Set the server address first", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val hadCache = selection.entryValues.isNotEmpty()
+            selection.isEnabled = false
+            selection.summary = "Loading libraries…"
+            reload.isEnabled = false
+            refreshLibraries { result ->
+                reload.isEnabled = true
+                if (result == null) {
+                    selection.isEnabled = hadCache
+                    selection.summary = if (hadCache) librarySummary(libraries, prefs().defaultLibraries()) else "Could not load libraries"
+                    Toast.makeText(screen.context, "Could not load libraries", Toast.LENGTH_SHORT).show()
+                } else {
+                    selection.entries = result.map { it.name }.toTypedArray()
+                    selection.entryValues = result.map { it.id }.toTypedArray()
+                    selection.isEnabled = true
+                    selection.summary = librarySummary(result, prefs().defaultLibraries())
+                }
+            }
+        }
+
+        reload.setOnPreferenceClickListener {
+            load()
+            true
+        }
+        // First open after a fresh install: no cache, an address already set.
+        if (libraries.isEmpty() && baseUrlValue.isNotBlank()) {
+            load()
+        }
+    }
+
+    private fun librarySummary(libraries: List<LibraryDto>, selected: Set<String>): String = when {
+        libraries.isEmpty() -> "Save the server address and reload to choose libraries"
+        selected.isEmpty() -> "All libraries"
+        else -> libraries.filter { it.id in selected }.joinToString(", ") { it.name }
+            .ifBlank { "All libraries" }
+    }
+
+    /**
+     * Fetches the libraries and caches them, then hands the result to the settings screen on main.
+     *
+     * A failure is reported as null rather than storing an empty list: the old cache stays usable,
+     * which keeps the selection dialog populated through a temporary login problem.
+     */
+    private fun refreshLibraries(onDone: (List<LibraryDto>?) -> Unit) {
+        settingsScope.launch {
+            val result = try {
+                val response = client.newCall(GET("$baseUrlValue/api/v1/libraries", headers)).awaitSuccess()
+                with(json) { response.parseAs<List<LibraryDto>>() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat { "Komga: could not load libraries: ${e.message}" }
+                null
+            }
+            if (result != null) {
+                prefs().edit()
+                    .putString(
+                        KomgaSettingKeys.LIBRARY_LIST,
+                        json.encodeToString(ListSerializer(LibraryDto.serializer()), result),
+                    )
+                    .apply()
+            }
+            mainHandler.post { onDone(result) }
+        }
     }
 
     companion object {
         private val AUTHOR_ROLES = setOf("writer", "artist", "author")
         private val SUPPORTED_IMAGE_TYPES = listOf("image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/jxl")
+        // KMK --> The reload row's key; a plain Preference, so nothing is ever stored under it.
+        private const val RELOAD_LIBRARIES_KEY = "__reload_libraries"
+        // KMK <--
     }
 }

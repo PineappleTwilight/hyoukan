@@ -673,10 +673,22 @@ open class WebGpuViewer(
     }.getOrDefault(0L)
 
     private val deviceLostListener =
-        ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.Companion.DeviceLostListener { _, _ ->
+        ca.mpreg.webgpuviewer.renderer.WebGpuRenderer.Companion.DeviceLostListener { reason, message ->
             if (isDestroyed) return@DeviceLostListener
             sessionDeviceLosses.incrementAndGet()
-            WebGpuDiagnostics.recordDeviceLoss("device lost")
+            // KMK --> Why the session lost its device, not just that it did. A loss the driver's
+            // callback reported and one confirmed by a native answer (`LOSS_REASON_OBSERVED`,
+            // see DeviceLossSignal) mean different things for the report: the first is the driver
+            // talking, the second is a callback that never arrived. 120 chars is enough to carry
+            // Dawn's text (`4: [Device] is lost.`) without flooding the block.
+            // KMK <--
+            WebGpuDiagnostics.recordDeviceLoss(
+                if (reason == WebGpuRenderer.LOSS_REASON_OBSERVED) {
+                    "observed: ${message.take(120)}"
+                } else {
+                    "callback reason=$reason: ${message.take(120)}"
+                },
+            )
             // Counted on the loss itself, not on a successful recovery: a device loss
             // on a phone is usually the app being backgrounded and the GPU going away, and
             // recovery routinely succeeds either way, so waiting for success would under-count.
@@ -837,6 +849,10 @@ open class WebGpuViewer(
                 "contrast=${config.contrast} eink=${config.einkPreset} " +
                 "hlg=${config.hlgEnabled} lut=${config.lutPreset}"
         logcat(LogPriority.INFO) { "WebGPU session: $sessionHeader" }
+        // KMK --> The render probe is process-wide, like the renderer itself: a fresh reader must
+        // not inherit the previous session's texture sample, nor its consumed one-shot flag (which
+        // made `tex=` a once-per-process fact rather than once per session).
+        ca.mpreg.webgpuviewer.viewer.RenderProbe.beginSession()
         WebGpuDiagnostics.beginSession(sessionHeader)
         // KMK <--
         startDecodeWorker()

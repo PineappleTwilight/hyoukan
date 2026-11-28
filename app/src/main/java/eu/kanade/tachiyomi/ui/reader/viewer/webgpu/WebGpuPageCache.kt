@@ -381,13 +381,21 @@ private fun WebGpuViewer.walkContinuousPage(index: Int): ViewerPage? {
 
 /**
  * Gets or creates a page. Thread-safe.
- * @param referencePage The page to use as reference for eviction (defaults to currentPage)
+ * @param referencePage The page to use as reference for eviction (defaults to the inserted shell)
  */
 fun WebGpuViewer.getPage(page: ReaderPage, referencePage: ViewerPage? = null): ViewerPage {
     val key = PageKey.Reader(page.chapter.chapter.id, page.index)
     return synchronized(lock) {
         findInCache(key) ?: ViewerReaderPage(this, page).also { newPage ->
             pageCache[key] = newPage
+            // KMK --> The default anchor is the shell being inserted, NOT `currentPage`. That
+            // reads backwards, and it is load-bearing: an explicit jump (`moveToPage`) and a new
+            // chapter set both insert their page while `currentPage` still names the page the
+            // reader is leaving, and anchoring there would rank the page being opened as the
+            // farthest and evict it before it is ever shown. Callers that create background
+            // shells (the render walk, `preloadChapterThenRetry`, split reconciliation) pass the
+            // reader's page explicitly - `currentPage` is the right anchor for those.
+            // KMK <--
             evictDownToBudget(referencePage ?: newPage)
         }
     }
@@ -402,6 +410,7 @@ fun WebGpuViewer.getPage(
     return synchronized(lock) {
         findInCache(key) ?: ViewerTransitionPage(this, prevChapter, nextChapter).also { newPage ->
             pageCache[key] = newPage
+            // Same rule as the reader-page overload above.
             evictDownToBudget(referencePage ?: newPage)
         }
     }

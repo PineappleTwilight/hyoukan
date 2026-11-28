@@ -83,6 +83,16 @@ internal object WebGpuDiagnostics {
     @Volatile
     private var deviceLosses: Int = 0
 
+    /**
+     * Where the first device loss came from, and how far into the session it happened.
+     *
+     * A count alone cannot tell a driver callback from a loss the renderer only discovered through
+     * a native answer; the 2026-11-27 PowerVR report had `deviceLosses=0` with a dead device for
+     * the whole session, which is a different defect from a loss that was reported and recovered.
+     */
+    @Volatile
+    private var lastLoss: String = "none"
+
     @Volatile
     private var recoveries: Int = 0
 
@@ -151,6 +161,7 @@ internal object WebGpuDiagnostics {
             evictions = 0
             recentEvictions.clear()
             deviceLosses = 0
+            lastLoss = "none"
             recoveries = 0
             failedRecoveries = 0
             parks = 0
@@ -242,7 +253,17 @@ internal object WebGpuDiagnostics {
     }
 
     fun recordDeviceLoss(reason: String) {
-        synchronized(this) { deviceLosses++ }
+        synchronized(this) {
+            if (deviceLosses == 0) {
+                val elapsedS = if (startedAtMs == 0L) {
+                    0L
+                } else {
+                    (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L) / 1000L
+                }
+                lastLoss = "${elapsedS}s $reason"
+            }
+            deviceLosses++
+        }
         logcat(LogPriority.WARN) { "WebGpu diagnostics: device loss ($reason)" }
     }
 
@@ -287,6 +308,7 @@ internal object WebGpuDiagnostics {
                 evictions = evictions,
                 worstChurn = worstChurn(),
                 deviceLosses = deviceLosses,
+                lastLoss = lastLoss,
                 recoveries = recoveries,
                 failedRecoveries = failedRecoveries,
                 parks = parks,
@@ -324,7 +346,8 @@ internal object WebGpuDiagnostics {
             // KMK <--
             appendLine(
                 "  deviceLosses=${snapshot.deviceLosses} recoveries=${snapshot.recoveries} " +
-                    "failedRecoveries=${snapshot.failedRecoveries} parks=${snapshot.parks}",
+                    "failedRecoveries=${snapshot.failedRecoveries} parks=${snapshot.parks}" +
+                    (if (snapshot.lastLoss == "none") "" else " lastLoss=${snapshot.lastLoss}"),
             )
             if (snapshot.ladder.isNotEmpty()) {
                 appendLine("  ladder=" + snapshot.ladder.entries.joinToString(" ") { "${it.key}:${it.value}" })
@@ -387,6 +410,7 @@ internal object WebGpuDiagnostics {
         val evictions: Int,
         val worstChurn: Int,
         val deviceLosses: Int,
+        val lastLoss: String,
         val recoveries: Int,
         val failedRecoveries: Int,
         val parks: Int,

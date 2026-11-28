@@ -326,6 +326,7 @@ interface AppGraph : ViewModelGraph {
     val protoBuf: ProtoBuf
     val sqlDriver: SqlDriver
     val databaseExporter: eu.kanade.tachiyomi.data.database.DatabaseExporter
+    val libraryInteropExporter: eu.kanade.tachiyomi.data.export.LibraryInteropExporter
     val databaseHandler: DatabaseHandler
     val database: Database
     val mangaRepository: MangaRepository

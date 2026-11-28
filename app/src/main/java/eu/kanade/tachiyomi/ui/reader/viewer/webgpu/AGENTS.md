@@ -278,6 +278,19 @@ buffer on the dead device — SIGILL, before any Kotlin recovery could run. `Web
 device without ever swallowing the current one. **If a dump shows that "stale" line immediately
 before a device-dependent native fault, this comparison is the first thing to check.**
 
+**A loss the callback never delivers is still a loss.** The native callback is the designed
+signal, and the 2026-11-27 field report is a session where it never arrived: the device was dead
+(the once-per-session readback answered `4: [Device] is lost.`), yet the report closed with
+`deviceLosses=0`, `recoveries=0`, `gen=0` and 350 presented frames into a black screen. Nothing
+recovered because nothing knew. `DeviceLossSignal.isLostDeviceMessage` recognises Dawn's answer
+(`[Device] is lost.`, a destroyed device), and `WebGpuRenderer.noteObservedDeviceLoss` promotes it
+to the same event the callback raises — idempotent, so whichever signal arrives first owns the
+notification. The three call sites are the page-texture readback, the frame's own `catch`, and
+the app's decode upload (`WebGpuViewerWorkers`). Deliberately **not** a loss: "Buffer was
+destroyed before mapping was resolved" (a buffer lifetime bug) and a lost *surface* (the
+swapchain ladder owns that). **Rule: an answer that names a dead device is a device loss, and a
+loss the host never hears about is a black screen that never recovers.**
+
 **A recovery that lost its device at birth now reports failure.** After `createSurface()` the
 recovery re-reads `deviceLost`: a surface build that fails (`VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`)
 loses the fresh device synchronously on the loss-callback executor, and recovery used to return
@@ -310,62 +323,67 @@ webgpureport exports; a PowerVR/nomtl emulator logcat with
   now carry `core=true/false`; compare that flag across field reports before theorising about
   a limit. A driver that lists the feature but rejects the request retries compat-only
   instead of latching `initError`.
-- **`WebGpuHealth` (app) turns repeat dead sessions into the legacy viewer.** One strike per
-  reader session that closes with the renderer still dead (`destroy()` re-reads `isAvailable`
-  — gated on `activity.isFinishing`, because a phone drops the GPU device on backgrounding
-  as a matter of course and an OS background-kill is not a session the user gave up on), or
-  that lost the device `SESSION_LOSS_STRIKE_THRESHOLD` (3) times even with recoveries in
-  between; `DISABLE_STRIKES` (2) strikes and `WebGpuProvider` declines, so the reader opens
-  on the pager instead of the same dead device every launch. The About screen easter egg
-  (the RAM-gate one) resets the strikes, and so does **turning the high-quality switch on** —
-  that is the user explicitly asking for the renderer again. A strike is *not* recorded for a
-  session that lost the device once and recovered — backgrounding does that on healthy phones.
-  Every strike is also written to the **in-app log file** (`xLogE` from `recordStrike`),
-  because a phone-only user never sees logcat and "the reader stopped opening on WebGPU" with
-  no record of why reads as a mystery regression.
+- **`WebGpuHealth` (app) records degraded sessions for the in-app log — and cannot change which
+  viewer a reader gets.** One strike per reader session that closes with the renderer still dead
+  (`destroy()` re-reads `isAvailable` — gated on `activity.isFinishing`, because a phone drops the
+  GPU device on backgrounding as a matter of course and an OS background-kill is not a session the
+  user gave up on), or that lost the device `SESSION_LOSS_STRIKE_THRESHOLD` (3) times even with
+  recoveries in between. Every strike is written to the **in-app log file** (`xLogE` from
+  `recordStrike`) with the session's diagnostics block, because a phone-only user never sees
+  logcat. **The count is not read by `WebGpuProvider`, by the settings screen, or by anything
+  else**: the WebGPU renderer is the reader's standard viewer, so a bad history must never demote
+  the device to the legacy pager (that latch was the "it falls back on every device for some
+  reason" bug, and removing it is deliberate — see *NO FALLBACK* below).
 
-  **The strike count is scoped to the build that recorded it** (`BuildConfig.VERSION_NAME` +
-  `BUILD_TIME`, stored beside the count). A latch that outlives the defect it was recorded for is
-  a latch the fix cannot lift: after the repair ships, every device that was ever struck keeps
-  opening on the legacy pager, the WebGPU settings stay visible, and nothing says why — reported
-  as "it falls back on every device for some reason". A different build discards the old count
-  (with an `xLogE` line saying so) and gets two fresh sessions; a device that genuinely cannot run
-  the renderer therefore retries twice per release and falls back again, which is the correct
-  trade. `BUILD_TIME` is in the key so a local rebuild of the same commit is also a fresh scope —
-  a fix tested from uncommitted sources must not inherit the binary it replaced.
+  **The record is build-scoped and consecutive.** The count lives beside `BuildConfig.VERSION_NAME`
+  + `BUILD_TIME`, so a fix is never reported as an older build's problem; a clean close clears it
+  (`recordHealthySession`), so one unlucky session is not held against a device that has read fine
+  since. The crash-surviving marker (`markDegradedSessionInFlight` / `commitUncleanSession`) still
+  records a session that ended in a native crash, but it also only writes a diagnostic line now.
 
-  **A clean close clears the count** (`recordHealthySession`). "Consecutive" is the documented
-  rule and it was not implemented: the count only climbed, so one unlucky session months ago
-  counted toward disabling a device that had read fine ever since. A device that fails every
-  session still has no clean close to clear it with, so the latch still latches.
+### NO FALLBACK — the WebGPU viewer is the reader's standard viewer
 
-  **A crash cannot record a strike, so the failure is persisted while the session is alive.**
-  The verdict is computed in `destroy()`, and a native SIGILL (the PowerVR readback crash) never
-  reaches it: the device kept opening WebGPU and crashing on every launch, with nothing counting
-  toward the fallback. When `recoverDeviceWithRetries` gives up, `WebGpuViewer` now calls
-  `WebGpuHealth.markDegradedSessionInFlight`; a successful recovery (`DeviceRecoveredListener`) or
-  a normal close clears it; and `WebGpuProvider.create` consumes a leftover marker with
-  `commitUncleanSession` as one strike before it reads the count. The marker is build-scoped like
-  the count, so a fix always gets its own fresh tries.
+**There is deliberately no per-device fallback.** A device that loses its GPU device is answered
+by recovering it (`WebGpuRenderer.noteObservedDeviceLoss`, the app's `recoverDeviceWithRetries`,
+`resetDecodedPagesAfterDeviceLoss`), not by opening the legacy pager on a later launch. Two
+reasons, both learned in the field: the latch made a genuinely recoverable device permanently
+"unavailable" with no way for the user to see why, and the legacy viewers are on their way out —
+WebGPU is the standard, not an upgrade.
 
-### WHY THE WEBGPU VIEWER IS NOT OFFERED — the fallback decision, in order
+What a lost device gets instead:
 
-`WebGpuProvider.create` is the only place that can hand the reader to the legacy pager, and it
-stops at the first reason. Each one is logged on the `ViewerRegistry` line **and** to the in-app
-log, because from the reader's UI every one of them looks identical: a pager with the WebGPU
-settings still shown.
+- **A PowerVR device fault moves the recovery onto the GLES backend.**
+  `WebGpuRenderer.recordLostDevice` sets `preferBackend = OpenGLES` when a PowerVR adapter loses
+  its device to a Vulkan-shaped fault (`LOSS_REASON_OBSERVED`, `OUT_OF_DEVICE_MEMORY`,
+  `DEVICE_LOST`) and the session is not already on GLES. The swapchain ladder already proved Dawn's
+  GLES backend presents on these devices (`swapchain recovered after switching to the OpenGLES
+  backend`), and it does not share the Vulkan driver's transfer/memory paths. A callback loss that
+  names no fault (backgrounding, surface teardown) keeps the default backend.
+- **A dead device from a previous session is rebuilt at the next reader open.**
+  `WebGpuProvider` calls `WebGpuRenderer.reinit()` before it decides the renderer is unavailable:
+  the device-only rebuild needs no surface, and without it one loss confirmed during a previous
+  teardown would decline every later reader for the rest of the process.
+- **The page-texture readback stays at the texture's origin on PowerVR.** Its one-shot
+  `copyTextureToBuffer` reads the centre texel everywhere else, but PowerVR's transfer engine is
+  documented to answer `VK_ERROR_OUT_OF_DEVICE_MEMORY` for copies at non-zero offsets — and that
+  error is delivered as a *lost device*. `(0, 0)` still tells a black/empty texture from one with
+  page data, and it is the one offset the driver accepts.
+
+### WHY THE WEBGPU VIEWER IS NOT OFFERED — the decision, in order
+
+`WebGpuProvider.create` stops at the first reason, and there are only three:
 
 | # | Reason | Where the answer is |
 |---|---|---|
 | 1 | The user's high-quality switch is off | `BasePreferences.highQualityRenderer()` |
-| 2 | This build recorded `DISABLE_STRIKES` degraded sessions on this device | `WebGpuHealth.strikeCount`, in `webgpu_health` prefs |
-| 3 | The renderer cannot initialise or lost its device | `WebGpuRenderer.unavailableReason` (`initError` / device lost / never initialised) |
-| 4 | Constructing the viewer threw | `logcat` + the in-app log carry the stack |
+| 2 | WebGPU cannot run on this device at all | `WebGpuRenderer.unavailableReason` (`initError` / never initialised), after a `reinit()` attempt |
+| 3 | Constructing the viewer threw | `logcat` + the in-app log carry the stack |
 
-Row 1 is not a failure — it is the switch doing its job. Rows 2–4 are the ones a report is about,
-and each now has a sentence in the in-app log beginning `WebGPU viewer declined:` or `WebGPU
-viewer failed`. **Do not add a fifth silent `return null`**; a decline with no line is the reason
-this section exists.
+Row 1 is not a failure — it is the switch doing its job. Rows 2–3 are the only ways a reader can
+end up on another viewer, and each has a sentence in the in-app log beginning `WebGPU viewer
+declined:` or `WebGPU viewer failed`. **Do not add a health/history gate back**: that is the latch
+this section exists to keep out. A decline with no line is still a bug, so every new `return null`
+owes the log a reason.
 
 ### A strike is a session verdict, never a sample of the page at exit
 
@@ -846,7 +864,8 @@ That gate is gone. The renderer is offered wherever `WebGpuRenderer.isAvailable`
 user's high-quality toggle is on, because the budget above already sizes every page and tile to the
 device. **The toggle defaults on** (`BasePreferences.highQualityRenderer`): the renderer used to be
 invisible to everyone who never found the row, which is not a choice a high-quality build should be
-making for them, and a device that cannot run it falls back through `WebGpuHealth` anyway. A device
+making for them, and a device that cannot run it is answered by recovering the device (and, on
+PowerVR, by moving the recovery to the GLES backend) rather than by demoting the reader. A device
 that genuinely cannot hold GPU-visible memory is the case `WebGpuHealth` owns: repeated dead
 sessions stop the renderer being offered, and the switch's own subtitle says so instead of looking
 inert. The up-front RAM check refused devices that would have read fine and predicted a failure the
@@ -1011,22 +1030,23 @@ above — a type mismatch that a compiler will not catch.
 | `Render error` in the system logcat, screen black, session looks healthy | The **draw** threw (pipeline validation, bind group, shader creation) and `render()` used to swallow it into `FrameResult.Drawn`. It now retries 30 frames and parks as `Unavailable`; the thrown exception is the actual defect. Read it, not the decode trace. |
 | `Tile draw failed for WxH; using the fast page path` | The tile cache's pipeline/atlas is broken on this driver; the page is now drawn directly and should be visible. The line's stack trace names the failing WebGPU call — that is the defect to fix if tiled quality matters on the device. |
 | Screen black while the app logs a healthy renderer, no decode or GPU error | Check the **viewer container's layer type**. `ReaderActivity.setLayerPaint` used to force `LAYER_TYPE_HARDWARE` unconditionally; a `TextureView` (the WebGPU surface below API 34) under an ancestor hardware layer is an extra compositing hop that has presented as a black frame on PowerVR-class HWUI. The layer is now set only while a grayscale/inverted-colour paint actually exists. **Read `frames=` before theorising**: `frames=0` means the renderer never submitted/presented a frame (surface or frame-loop defect); `frames>0` with `drawn=false` means frames reached the display and the page never painted (draw or compositing defect). |
-| `drawn=true` in the diagnostics block and the screen is still black | `drawn` is **not** a presentation proof. It is set by the render walk (`resolveFetchedPage(0)`) from `imagePage.isOnScreen`, which `captureRenderState` publishes *before* the frame is submitted — so a session whose frames all returned `Retry`/`Unavailable` still reads `drawn=true`. That is exactly how the 2026-11-22 Mali-G76 black screen (RMX2151, `tier=MEDIUM`, thirteen decodes, no error, no park) closed as healthy and struck nothing. Read `frames=` instead: it is `WebGpuRenderer.presentedFrames`, incremented only after `present()` returns. **A session with `frames>0`, `drawn=true` and no image is the drew-but-invisible shape (2026-11-23 PowerVR dump: `frames=139`; the 2026-11-24 Mali-G76 and PowerVR dumps are the same shape with `draw=pages=1 quads=1`, a correct `rect`, `errs=0` and no park)** — check the `page=` line first (`scale`, `x`, `y`, `mips`, `q`), then the `tiles=`/`filter=` fields in the session header, then `tex=`. **`tex=` is the page texture's centre texel, read back once per session: `rgba=0,0,0,0` means the texture (decode/upload) is black, while a non-black `tex` with a black screen means the draw or the compositing is at fault.** The paged page pass is stencil-free since 2026-11-24 (`ImageSingle.beginLivePass`), so a stencil state can no longer discard the page on that path. A `TextureView` under an ancestor hardware layer is the other known black shape; `Reader layer:` says whether the layer is on, and the WebGPU viewer now keeps it off. **Do not "fix" the black page by making the TextureView opaque:** the page footprint already has an opaque `backgroundColor` rect under it, so a black page is an opaque black fill, not a transparent frame — and an opaque view would black out the margins and the fade backdrop without touching the cause. |
+| `drawn=true` in the diagnostics block and the screen is still black | `drawn` is **not** a presentation proof. It is set by the render walk (`resolveFetchedPage(0)`) from `imagePage.isOnScreen`, which `captureRenderState` publishes *before* the frame is submitted — so a session whose frames all returned `Retry`/`Unavailable` still reads `drawn=true`. That is exactly how the 2026-11-22 Mali-G76 black screen (RMX2151, `tier=MEDIUM`, thirteen decodes, no error, no park) closed as healthy and struck nothing. Read `frames=` instead: it is `WebGpuRenderer.presentedFrames`, incremented only after `present()` returns. **A session with `frames>0`, `drawn=true` and no image is the drew-but-invisible shape (2026-11-23 PowerVR dump: `frames=139`; the 2026-11-24 Mali-G76 and PowerVR dumps are the same shape with `draw=pages=1 quads=1`, a correct `rect`, `errs=0` and no park)** — check the `page=` line first (`scale`, `x`, `y`, `mips`, `q`), then the `tiles=`/`filter=` fields in the session header, then `tex=`. **`tex=` is the page texture's centre texel, read back once per session** (on PowerVR the sample comes from `(0, 0)` — its transfer engine rejects non-zero offsets): `rgba=0,0,0,0` means the texture (decode/upload) is black, while a non-black `tex` with a black screen means the draw or the compositing is at fault.** The paged page pass is stencil-free since 2026-11-24 (`ImageSingle.beginLivePass`), so a stencil state can no longer discard the page on that path. A `TextureView` under an ancestor hardware layer is the other known black shape; `Reader layer:` says whether the layer is on, and the WebGPU viewer now keeps it off. **Do not "fix" the black page by making the TextureView opaque:** the page footprint already has an opaque `backgroundColor` rect under it, so a black page is an opaque black fill, not a transparent frame — and an opaque view would black out the margins and the fade backdrop without touching the cause. |
 | A page is black while its neighbours draw, no error, tiled page | The tiled renderer answered "covered" after blitting nothing, so `drawLive` skipped the direct page draw. That skip is gone: **the page is painted under the tiles on every frame** (`ImageSingle.drawLive`) and the tiles blit over it, so no coverage answer can hide the page. `TileRenderer.drawCore` also reports coverage only when it actually blitted, and the empty-placement branch answers *not* covered. If a page is still blank on the tiled path, the underlay itself is failing — check `renderPage`/`renderWith` and `hasUploadedImage`. |
 | `Re-driving ... last=unfinished` | The worker left the page mid-flight without completing a trace. Usually cancellation. |
 | `DecodeTrace STALL` | The watchdog saw a page past its stage deadline. The worker cannot report its own stall. |
 | `Device not available` / blank pages after backgrounding | Device loss; check the recovery path above, not the page. |
 | `stale device-lost callback for a retired device` on the **first** loss, immediately followed by `Device lost detected during texture readback` and a SIGILL in `WebGPU-Render-T` | The stale-fire guard is comparing wrapper **identity**, not the native handle. The glue builds the callback's `GPUDevice` at dispatch time, so the live device is called stale, `deviceLost` stays false, and the readback maps a buffer on a dead device. See *DEVICE LIFECYCLE - a device loss is matched by native handle*. |
+| `tex=map failed 4: [Device] is lost.` in a session that also reports `deviceLosses=0`, `recoveries=0`, `gen=0`, `frames>0` | **The device was dead while the driver's loss callback never reached the process** (2026-11-27 PowerVR dump, Multilaser M8_4G). The readback's answer is proof — it is Dawn's message for a call made on a lost device — and it used to be spent writing `tex=` while the render loop kept presenting black frames into the dead GPU. It is now promoted to a real loss (`DeviceLossSignal.isLostDeviceMessage` → `WebGpuRenderer.noteObservedDeviceLoss`), so the app's recovery chain rebuilds the device and `resetDecodedPagesAfterDeviceLoss` re-decodes the pages; the same promotion is applied to a frame that throws a lost-device message and to a decode upload that does. The report now carries `lastLoss=<seconds>s <source>: <message>`: `callback reason=…` means the driver reported it and recovery failed (the strike path owns that), `observed: …` means no callback arrived and a native answer caught it. **If `tex=` is still the only evidence, read its `t=<ms>` stamp** — it says when the sample resolved, which separates "lost before the first page draw" from "lost at teardown". |
 | `F/libc Fatal signal 11 (SIGSEGV), ... fault addr 0x0 ... (WebGPU-Render-T)` with `Java_androidx_webgpu_GPUQueue_submit` above `submitAndRelease` in the tombstone | Device loss landed **mid-frame**: `render()` passed its entry `isAvailable` gate, then the draw suspended (tile generation), and the loss invalidated the native queue before `submitAndRelease`. Submitting on the dead handle is a null-deref inside `libwebgpu_c_bundled` that kills the process — no Kotlin exception can catch it. `render()` re-checks `isAvailable` immediately before the submit and drops the frame; the residual recheck→JNI window cannot be closed from Kotlin (UNVERIFIED how wide). Same rule as `cleanup()`: once the device is lost, nothing drives its objects. |
 | `F/libc Fatal signal 6 (SIGABRT), code -1 (SI_QUEUE) ... (WebGPU-Render-T)` at `Java_androidx_webgpu_GPUQueue_submit`, preceded by a barrage of `GraphicBufferAllocator: Failed to allocate (4 x 4) layerCount 1 format 59 usage b00: 7` / `AHardwareBuffer ... failed` | **A frame landed while the window was being torn down.** `ReaderActivity` used to declare no `configChanges`, so rotating recreated the activity; it now does, so rotation is a surface resize through `WebGpuRenderer.resize()` (no teardown, no re-init — this in-flight wedge was the reason). Recreation still happens for other causes (e.g. locale change) — there, Compose's `dispatchSurfaceDestroyed` cancels the render job but does not wait for it, and the framework dismantles the window — its BufferQueue and every gralloc buffer behind the swapchain images (the format-59 BLOB failures) — as soon as the surfaceDestroyed callbacks return. A cancellation only lands at a suspension point, so a frame already past its last one (the fast tile path suspends only while generating) ran its whole `render` tail — submit and present — into that teardown, and the bundled Dawn aborted inside the submit. Fixed library-side: `ViewerSurface` registers `Surface.onDestroyed` (which runs on main *before* Compose cancels, while the framework is still holding the teardown off) and `WebGpuRenderer.detachSurface` sets a `surfaceDetached` gate plus drains the in-flight frame on the render mutex before returning. If it ever reappears, check that the destroy callback registration survived and that `render()` still gates on `surfaceDetached` at entry and at the submit. |
 | `device lost reason=1: CreateAndroidSurfaceKHR failed with VK_ERROR_NATIVE_WINDOW_IN_USE_KHR`, preceded by `BufferQueueProducer ... connect: already connected` and `vulkan: native_window_api_connect() failed` | A **second** swapchain was created on a window the old one still owned. Dawn can defer `vkDestroySurfaceKHR` past `close()`, so recovery must drop the old `GPUSurface` *and* release the retained `ANativeWindow` (`NativeWindow.release`) **before** it builds the replacement — see `recoverFromDeviceLoss`. The `SurfaceTexture-0-…` name means the TextureView path (API < 34), where the window is a `SurfaceTexture`'s BufferQueue. **If it still appears on a current build, the surface-teardown pump failed — see the landmine below.** |
 | `recovery failed (consecutive: N, next attempt in Xms)` | A recovery produced no usable device; the library ladder is escalating. Consecutive counts reset only after a device survives 15 s. Each failed recovery used to also leak a whole Dawn device (no finalizer on the wrapper) — retired devices are destroyed one recovery cycle later now (`destroyRetired`, with `destroy()` alone; `close()` on a retired device corrupts a still-pending loss record), so a persistently climbing `consecutive:` with native memory growth is the trace to send. |
 | `recovery deferred Xs (consecutive failures: N)` | A recovery attempt arrived inside the ladder's cooldown and was refused without touching the GPU. Normal while the ladder is escalating; a fresh loss event or a stable device resets it. |
-| `recovery gave up after N consecutive failures` | The ladder stopped self-retrying. The reader stays on a dead device until a *new* device-loss event arrives (which restarts the ladder) or the viewer is recreated. Everything app-side keeps working; only WebGPU draws are parked. Since the strike system: a session that ends in this state records one `WebGpuHealth` strike, and two struck sessions (recorded by the *same build* — see `WebGpuHealth`) make the next session open on the legacy viewer instead. |
+| `recovery gave up after N consecutive failures` | The ladder stopped self-retrying. The reader stays on a dead device until a *new* device-loss event arrives (which restarts the ladder) or the viewer is recreated. Everything app-side keeps working; only WebGPU draws are parked. A session that ends in this state records one `WebGpuHealth` strike **as a diagnostic only** — there is no fallback to the legacy viewer; the next reader open rebuilds the device (`WebGpuProvider` → `reinit()`). |
 | `WebGPU viewer declined: …` in the in-app log, WebGPU settings still visible in the reader | `WebGpuProvider` refused and said why: the switch is off, this build has recorded 2 degraded sessions (`WebGpuHealth`), the renderer is unavailable (`unavailableReason`), or construction threw. Fix the named reason; do not guess from the reader's appearance. |
 | `WebGPU failed to initialize: No implementation found for androidx.webgpu.GPUInstance androidx.webgpu.GPU.createInstance(...) (tried Java_androidx_webgpu_GPU_createInstance ...)` | **Check the artifact first.** If every device fails it, the `androidx.webgpu` classes and `libwebgpu_c_bundled.so` came from different builds — the custom repo's re-uploaded `1.0.0-dev06` did exactly this (its `.so` exported `Java_androidx_webgpu_GPUAdapterKt_native*`, its classes declared `GPU.createInstance`). Fix by resolving the official `alpha06` from `google()` through the library's `api` dependency, not by loading the library harder. On a **minified beta** only, the other cause is that the native library (`libwebgpu_c_bundled.so`) was not loaded when the companion first called the native `createInstance`. It is *not* R8 renaming: the app's rules start with `-dontobfuscate`, so the `Java_androidx_webgpu_*` symbol names survive shrinking. The library now loads the `.so` directly in `safeInitLibrary()` and retries `createInstance` once on `UnsatisfiedLinkError`; the app also pins `-keep class androidx.webgpu.**` / `ca.mpreg.webgpuviewer.**` because the library reaches it through an `includeBuild` and its consumer rules are easy to lose. Check that `System.loadLibrary("webgpu_c_bundled")` actually succeeds (a failed `dlopen` says so explicitly) before theorising about a Dawn or version mismatch. |
-| `DecodeTrace ... decoded total=...` lines but **no `WebGpuRenderer`/frame lines at all**, session closes with **zero pages ever on screen** (2026-11-17 field log, Multilaser M8_4G, Android 11, `tier=TINY`, `evictions=55 worstChurn=7`) | The renderer never presented a frame: pages decode, upload and evict, the screen stays black, and the device is alive so nothing else struck. `WebGpuViewer.destroy` now records a strike when `decodedPages() >= 2`, the session ran 5 s, and `WebGpuDiagnostics.anyPageDrawn()` is false — a session-wide flag, so the page the reader happens to be on at exit cannot decide it (see *A strike is a session verdict*). Two such sessions open on the legacy viewer instead of repeating forever. If it still appears after the strikes, the draw path itself is the suspect — that log has no renderer line at all, which is the signature to chase, not a decode stall. |
-| `parking until the surface changes` (see the swapchain row above) and the session then closes without ever recovering | The PowerVR black-screen shape: the device is *alive* (`isAvailable` stays true the whole time), so the dead-device strike never fired and the session used to close looking healthy. The renderer now counts parks (`surfaceParkCount`, instance-scoped on `WebGpuRenderer` — read it through `pager.state.renderer`, not the companion), and a session that ends having parked records one `WebGpuHealth` strike too, so persistent parkers fall back to the legacy viewer on later launches. Since the four-rung ladder, a park means the surface rebuild, device rebuild **and** OpenGLES switch all failed — the log lines immediately above it name which rungs ran. If a park appears with no `rebuilding the GPU device` / `switching to the OpenGLES backend` lines, the ladder was cut short; check `onSwapchainError`'s threshold table. |
+| `DecodeTrace ... decoded total=...` lines but **no `WebGpuRenderer`/frame lines at all**, session closes with **zero pages ever on screen** (2026-11-17 field log, Multilaser M8_4G, Android 11, `tier=TINY`, `evictions=55 worstChurn=7`) | The renderer never presented a frame: pages decode, upload and evict, the screen stays black, and the device is alive so nothing else struck. `WebGpuViewer.destroy` records a strike when `decodedPages() >= 2`, the session ran 5 s, and `WebGpuDiagnostics.anyPageDrawn()` is false — a session-wide flag, so the page the reader happens to be on at exit cannot decide it (see *A strike is a session verdict*). The strike is diagnostic only now; the draw path itself is the suspect — that log has no renderer line at all, which is the signature to chase, not a decode stall. |
+| `parking until the surface changes` (see the swapchain row above) and the session then closes without ever recovering | The PowerVR black-screen shape: the device is *alive* (`isAvailable` stays true the whole time), so the dead-device strike never fired and the session used to close looking healthy. The renderer now counts parks (`surfaceParkCount`, instance-scoped on `WebGpuRenderer` — read it through `pager.state.renderer`, not the companion), and a session that ends having parked records one `WebGpuHealth` strike **as a diagnostic**. Since the four-rung ladder, a park means the surface rebuild, device rebuild **and** OpenGLES switch all failed — the log lines immediately above it name which rungs ran. If a park appears with no `rebuilding the GPU device` / `switching to the OpenGLES backend` lines, the ladder was cut short; check `onSwapchainError`'s threshold table. |
 | A field report says the reader "logs nothing" — and the user enabled **verbose logging** (Settings → Advanced) before capturing | Verbose logging wires the **OkHttp logging interceptor only** — it captures HTTP traffic and has nothing to say about a decode/render/GPU failure. The reader's own diagnostics live in logcat (`WebGpuRenderer`/`TileRenderer`/`DecodeTrace` greps, below), and the app-side degraded-session path is mirrored into the in-app file log by `WebGpuHealth.recordStrike` (xLog) since 2026-11. Do not send a user down the verbose-logging path for a render defect. |
 | A field report from a **preview/beta build** shows no Discord RPC lines at all (the external-asset converter this referred to has since been removed — Discord's external-assets API needs the *application's* token, which the app never had) | The Discord RPC port logs through **Timber**, which was planted only in debug builds — every RPC failure (including the external-asset HTTP errors behind "presence has no images") was a silent no-op outside debug. `Timber.plant` is unconditional in `App.onCreate` now. Any future Anikku-style port should assume the same: library code that logs through a facade must have that facade planted in every build type. |
 | `Evicted ch=X/i=N` → `Queued ch=X/i=N` → `Decode skipped ... cached=false` repeating every ~15 ms for the *same* page (the 2026-11-04 field log shows hundreds of cycles) | The evict↔recreate livelock: the shell was the evictor's cheapest victim *and* the render walk kept re-demanding it, so insert evicted it, the walk rebuilt it next frame, and the decode queue gained a dead entry per frame while every pop skipped it — the page never decoded and the cache never settled. Fixed twice over: `evictFarthestPage` no longer ranks wanted-undecoded shells as victims, and `queueForDecode` drops a shell that is no longer `pageInCache`. If it returns, check both halves. |
@@ -1550,6 +1570,17 @@ answers "was the page placed where the surface could show it" without a second r
 `scale` near 0.01, an off-screen `x`/`y`, or `mips=0` is the answer, and `q=false` says the direct
 path was used. The session header carries `tiles=` (`WebGpuRenderer.tileCacheUsable`) and
 `tiling=` (`on`, `powervr` or `preference`) and `filter=grayscale/inverted` for the same reason.
+
+**`tex=` is stamped with when it resolved, and it is a per-session fact now.** The line reads
+`tex=rgba=… t=<ms>ms` or `tex=map failed … t=<ms>ms`, where the stamp is the time since the
+session opened. That is what separates a device that was already dead when the first page was
+drawn from one that died later at teardown, and it is the one thing the 2026-11-27 dump could not
+answer. Two lifecycle bugs were fixed with it: the probe is process-wide like the renderer, so a
+new viewer now calls `RenderProbe.beginSession()` (without it, every reader after the first
+inherited the previous session's sample and its consumed one-shot flag — `tex=` was
+once-per-process), and a failed sample re-arms up to three times rather than spending the whole
+session's evidence on one unlucky frame. `discardTextureSample()` on a device rebuild re-arms for
+the replacement device.
 
 ## WHERE THINGS ARE
 
